@@ -43,7 +43,7 @@
 
 | 文件 | 说明 |
 |------|------|
-| `infra_v3.txt` / `.svg` / `.png` | OPM 框架图（评委叙事 + SQL 面） |
+| `README.md` | 架构说明（GitHub 叙事；本地仍保留 `infra_v3.*` 图，不入库） |
 | `schema_v3.sql` | 全量 DDL（表/索引/视图） |
 | `recall-agent/sql/schema_v3.sql` | 应用内副本（已应用到集群） |
 
@@ -206,7 +206,8 @@ npm run dev
 ```
 D:\AI_Models\hackson\AWS\
 ├── PROGRESS.md              ← 本文件
-├── infra_v3.*               ← 架构图
+├── README.md                ← 架构说明（仓库入口）
+├── infra_v3.*               ← 本地架构图（gitignore，不上 GitHub）
 ├── schema_v3.sql            ← 根目录 schema 副本
 └── recall-agent/            ← 主应用
     ├── .env.local           ← 密钥（勿提交）
