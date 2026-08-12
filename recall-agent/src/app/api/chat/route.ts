@@ -1,0 +1,200 @@
+import { query } from "@/lib/db/pool";
+import { requireUserId } from "@/lib/session/user";
+import { embedText } from "@/lib/ai/embed";
+import { streamChat, type ChatMessage } from "@/lib/ai/chat";
+import { hybridRetrieve, recordMemoryHits } from "@/lib/memory/hybrid";
+import { extractMemories } from "@/lib/memory/extract";
+import { dedupeAndStore } from "@/lib/memory/dedupe";
+import { buildSystemPrompt } from "@/lib/prompt";
+import type { HybridHit, Message } from "@/lib/types";
+
+export const runtime = "nodejs";
+export const maxDuration = 120;
+
+type Body = {
+  threadId?: string;
+  message?: string;
+};
+
+/**
+ * POST /api/chat
+ * Full memory loop: embed → hybrid retrieve → stream reply → extract → dedupe store.
+ * Streams NDJSON lines: meta | token | done | error
+ */
+export async function POST(req: Request) {
+  try {
+    const userId = await requireUserId();
+    const body = (await req.json()) as Body;
+    const text = body.message?.trim();
+    if (!text) {
+      return Response.json({ error: "message required" }, { status: 400 });
+    }
+
+    let threadId = body.threadId;
+    if (!threadId) {
+      const { rows } = await query<{ id: string }>(
+        `INSERT INTO threads (user_id, title) VALUES ($1, $2) RETURNING id`,
+        [userId, text.slice(0, 60)],
+      );
+      threadId = rows[0].id;
+    } else {
+      const { rows } = await query(
+        `SELECT 1 FROM threads WHERE id = $1 AND user_id = $2`,
+        [threadId, userId],
+      );
+      if (!rows.length) {
+        return Response.json({ error: "thread not found" }, { status: 404 });
+      }
+    }
+
+    const { rows: userMsgRows } = await query<Message>(
+      `
+      INSERT INTO messages (thread_id, user_id, role, content)
+      VALUES ($1, $2, 'user', $3)
+      RETURNING id, thread_id, user_id, role, content, created_at
+      `,
+      [threadId, userId, text],
+    );
+    const userMessage = userMsgRows[0];
+
+    await query(`UPDATE threads SET updated_at = now() WHERE id = $1`, [
+      threadId,
+    ]);
+
+    // P2 + P3 hybrid retrieve
+    const queryEmb = await embedText(text);
+    const hits = await hybridRetrieve({
+      userId,
+      queryEmbedding: queryEmb,
+      queryText: text,
+      limit: 8,
+    });
+
+    await recordMemoryHits({
+      userId,
+      threadId,
+      messageId: userMessage.id,
+      hits,
+    });
+
+    const { rows: history } = await query<Message>(
+      `
+      SELECT id, thread_id, user_id, role, content, created_at
+      FROM messages
+      WHERE thread_id = $1 AND user_id = $2
+      ORDER BY created_at DESC
+      LIMIT 20
+      `,
+      [threadId, userId],
+    );
+    const chronological = history.reverse();
+
+    const chatMessages: ChatMessage[] = [
+      { role: "system", content: buildSystemPrompt(hits) },
+      ...chronological
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+    ];
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (obj: unknown) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+        };
+
+        try {
+          send({
+            type: "meta",
+            threadId,
+            userMessageId: userMessage.id,
+            memories: hits.map(publicHit),
+          });
+
+          let assistantText = "";
+          for await (const delta of streamChat(chatMessages)) {
+            assistantText += delta;
+            send({ type: "token", text: delta });
+          }
+
+          const { rows: asstRows } = await query<Message>(
+            `
+            INSERT INTO messages (thread_id, user_id, role, content)
+            VALUES ($1, $2, 'assistant', $3)
+            RETURNING id, thread_id, user_id, role, content, created_at
+            `,
+            [threadId, userId, assistantText],
+          );
+          const assistantMessage = asstRows[0];
+
+          // P6 → P7 → P8 (async path kept in-request for demo reliability)
+          let writes: Awaited<ReturnType<typeof dedupeAndStore>> = [];
+          try {
+            const candidates = await extractMemories({
+              userMessage: text,
+              assistantMessage: assistantText,
+            });
+            if (candidates.length) {
+              writes = await dedupeAndStore({
+                userId,
+                threadId: threadId!,
+                sourceMessageId: assistantMessage.id,
+                candidates,
+              });
+            }
+          } catch (extractErr) {
+            send({
+              type: "warn",
+              message:
+                extractErr instanceof Error
+                  ? extractErr.message
+                  : "memory extract failed",
+            });
+          }
+
+          send({
+            type: "done",
+            assistantMessageId: assistantMessage.id,
+            memoryWrites: writes,
+            memoriesUsed: hits.map(publicHit),
+          });
+          controller.close();
+        } catch (err) {
+          send({
+            type: "error",
+            message: err instanceof Error ? err.message : "chat failed",
+          });
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+      },
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "chat failed";
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
+
+function publicHit(h: HybridHit) {
+  return {
+    id: h.id,
+    kind: h.kind,
+    content: h.content,
+    hybrid_score: h.hybrid_score,
+    score_vec: h.score_vec,
+    score_txt: h.score_txt,
+    score_recency: h.score_recency,
+    score_usage: h.score_usage,
+    hit_count: h.hit_count,
+  };
+}
+
