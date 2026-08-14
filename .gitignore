@@ -1,3 +1,6 @@
+# Local continuation notes — keep on disk, never push
+/PROGRESS.md
+
 # Architecture diagrams stay on disk for local work; they are not in the GitHub repo.
 /infra_v2.png
 /infra_v2.svg
