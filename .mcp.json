@@ -1,0 +1,24 @@
+{
+  "$comment": [
+    "Hackathon tool ② — read-only analytics MCP.",
+    "Connect as recall_analyst from mcp_readonly_role.sql:",
+    "SELECT on v_memory_funnel, v_memory_reuse, v_hybrid_score_breakdown,",
+    "v_duplicate_clusters only. No base tables, embeddings, or message text.",
+    "Credentials stay in MCP_DATABASE_URL — never commit them.",
+    "Cockroach Cloud Managed MCP can use the same SQL user instead of this local server."
+  ],
+  "mcpServers": {
+    "recall-analytics": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "mcp-server-postgres==0.6.2",
+        "mcp-server-postgres",
+        "--read-only"
+      ],
+      "env": {
+        "DATABASE_URI": "${MCP_DATABASE_URL}"
+      }
+    }
+  }
+}

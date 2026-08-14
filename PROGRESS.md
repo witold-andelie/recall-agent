@@ -1,15 +1,17 @@
 # Recall Agent — 项目进展与待办
 
-> 保存时间：2026-08-12  
-> 用途：黑客松中断续作（明天从这里接着干）  
+> 保存时间：2026-08-14  
+> 用途：黑客松中断续作（从这里接着干）  
 > 项目路径：`D:\AI_Models\hackson\AWS\`
 
 ---
 
 ## 一句话现状
 
-**本地 agent 已跑通**：CockroachDB Cloud 持久记忆 + hybrid 检索 + 英文 Chat/Memory UI + OpenCode 模型。  
-**AWS Bedrock / IAM 尚未配完**；部署与提交物料未做。
+**产品主链路 + AWS 合规项已通**：CockroachDB Cloud 持久记忆 + hybrid 检索 + 英文 Chat/Memory UI + **Amazon Bedrock（Claude Haiku 4.5 + Titan Embed V2）**。  
+浏览器已验证两轮对话出现 Memory hits / New writes。  
+**还没做**：CRDB 工具 ②③④ 演示、部署、提交物料。  
+**密钥策略：不轮换。** 只放在本文件夹本地文件里（`.env.local`），gitignore 挡住，不要推 GitHub。
 
 ---
 
@@ -17,21 +19,21 @@
 
 构建以 **CockroachDB 为持久记忆层** 的 agent，部署在 **AWS** 上。
 
-至少使用 **2 项** CockroachDB 工具（我们目标 4 项全覆盖）：
+至少使用 **2 项** CockroachDB 工具（目标 4 项全覆盖）：
 
 | # | 工具 | 状态 |
 |---|------|------|
 | ① | 分布式向量索引 | ✅ 已建 `CREATE VECTOR INDEX`，hybrid 用 `<->` |
-| ② | 托管 MCP Server | ⬜ 未演示（控制台/Cursor 配置） |
-| ③ | ccloud CLI | ⬜ 未演示 |
-| ④ | Agent Skills Repo | ⬜ 未演示（开发期可口述） |
+| ② | 托管 MCP Server | ✅ 仓库已有 `.mcp.json` + `mcp_readonly_role.sql`（`recall_analyst` 只能读 `v_*`）；控制台连上即可演示 |
+| ③ | ccloud CLI | ⬜ 未装、未演示（本机没有 `ccloud`） |
+| ④ | Agent Skills Repo | ✅ `skills/memory-analytics/SKILL.md` 已入库 |
 
 至少 **1 项** AWS 服务：
 
 | 服务 | 状态 |
 |------|------|
-| Amazon Bedrock | ⬜ **未接通**（卡在 IAM / 密钥；Model access 页面已下线属正常） |
-| Lambda / S3 / 其他 | ⬜ 未部署 |
+| Amazon Bedrock | ✅ **已接通**（IAM 用户 + 真实 API + 浏览器记忆闭环） |
+| Lambda / S3 / 其他 | ⬜ 未部署（可选加分） |
 
 产品语言：**纯英文**（UI、prompt、记忆内容）。
 
@@ -54,7 +56,7 @@
 - CRDB 版本实测：约 **v26.2.5**
 - Schema 已应用：表、GIN 全文、**VECTOR INDEX**、分析视图
 - `feature.vector_index.enabled = true` 已尝试开启
-- 探针通过：本地 embedding 可写入并做 L2 检索
+- 探针通过：embedding 可写入并做 L2 检索
 
 ### 应用代码 `recall-agent/`
 
@@ -66,17 +68,48 @@
 | Hybrid SQL（向量 + ts_rank + recency + hits） | ✅ |
 | 抽取 → SQL 去重 ADD/UPDATE/SKIP | ✅ |
 | Memory Panel + `/memory` 浏览器 | ✅ 英文 UI |
-| OpenCode Zen Go 聊天 | ✅ `deepseek-v4-flash` |
-| 本地 hash embedding | ✅（无远程 embeddings 时） |
-| Bedrock 代码路径 | ✅ 已写好，**未用真实 AWS 密钥跑通** |
+| OpenCode Zen Go 聊天 | ✅ 备用，`deepseek-v4-flash`（现已不走这条） |
+| 本地 hash embedding | ✅ 备用（现已不走这条） |
+| Bedrock 代码路径 | ✅ **真实密钥跑通** |
 | `npm run build` | ✅ 曾通过 |
-| E2E 两轮记忆 | ✅ cookie 会话下命中偏好/技术栈 |
+| E2E / 浏览器两轮记忆 | ✅ Bedrock 下 Memory hits / New writes 已出现 |
+
+### AWS / Bedrock（2026-08-14 完成）
+
+- 用 **Root** 登录；Root 无 MFA（安全提醒，不挡路）
+- 已建 IAM 用户 **`recall-bedrock`**（不要给控制台登录；不要在 Root 上建 Access Key）
+- 权限：`AmazonBedrockFullAccess`
+- 用途：Application running outside AWS
+- Access Key 已写入 `recall-agent/.env.local`（gitignore，**勿提交**）
+- 区域：`us-east-1`
+- 账号套餐：**Paid account plan**（新版「付费账户计划」）
+  - **不能降回 Free plan**（官方 FAQ Q10）
+  - 不是月租；看不到「扣款计划」是正常的
+  - 用多少付多少；抵扣金仍会先抵 Bedrock 费用
+  - 黑客松建议 **先别关户**；关户 90 天后永久删除，Bedrock 叙事会断
+
+### 实测可用 / 不可用的模型（us-east-1）
+
+脚本：`recall-agent/scripts/probe-bedrock.mjs`
+
+| 用途 | Model ID | 结果 |
+|------|----------|------|
+| Chat（当前默认） | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | ✅ 用 inference profile |
+| Chat 备选 | `amazon.nova-lite-v1:0` / `nova-micro` / `nova-pro` | ✅ |
+| Embed（当前默认） | `amazon.titan-embed-text-v2:0` | ✅ 1024 维，对齐 schema |
+| 旧 Claude 3 Haiku | `anthropic.claude-3-haiku-20240307-v1:0` | ❌ Legacy / 30 天未用 |
+| 旧 Claude 3.5 Sonnet | `anthropic.claude-3-5-sonnet-20240620-v1:0` | ❌ EOL |
+| 旧 on-demand Claude | 无 `us.` 前缀的新 ID | ❌ 需要 inference profile |
+
+代码默认已改：`src/lib/ai/chat.ts`、`.env.example` 指向 Haiku 4.5 profile。这两处 + `probe-bedrock.mjs` 还在工作区未提交。
 
 ### 配置（本地）
 
-- 文件：`recall-agent/.env.local`（**已 gitignore，勿提交**）
-- 当前 AI：`AI_PROVIDER=openai`，Base：`https://opencode.ai/zen/go/v1`，模型：`deepseek-v4-flash`
-- Embedding：`EMBEDDING_PROVIDER=local`
+- 文件：根目录 `.env.local` + `recall-agent/.env.local`（内容相同；**gitignore，勿提交，不轮换**）
+- 当前 AI：`AI_PROVIDER=bedrock`
+- Chat：`BEDROCK_CHAT_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0`
+- Embed：`EMBEDDING_PROVIDER=bedrock` / Titan V2 / `EMBEDDING_DIMS=1024`
+- OpenCode 配置仍留在 `.env.local` 作备用，不删
 - `DATABASE_URL` 已指向 CRDB Cloud
 
 ### 工具脚本
@@ -86,6 +119,7 @@
 | `scripts/apply-schema.mjs` | 应用/重跑 schema |
 | `scripts/fix-funnel-view.mjs` | 修复 `v_memory_funnel` |
 | `scripts/probe-embed.mjs` | 本地向量写库探针 |
+| `scripts/probe-bedrock.mjs` | 探测 Bedrock chat / embed 哪些 model ID 可用 |
 | `scripts/e2e-chat.mjs` | 两轮 chat 冒烟 |
 
 ### 已知技术点
@@ -94,109 +128,90 @@
 - CRDB：`ln(int)` 不兼容 → hybrid 已改为 `hit_count::float8`
 - CRDB：向量索引加速 **L2 `<->`**，不是 cosine
 - 新版 Bedrock：**没有 Model access 菜单**；模型默认可用，靠 **IAM + Playground/API**
-- 密码/API Key 曾出现在对话中 → **提交前建议轮换** CRDB SQL 密码与各 API Key
+- 新账号上旧 Claude 3.x 常 EOL；优先 inference profile（`us.anthropic...`）或 Nova
+- 密钥 **不轮换**，只放本机：`D:\AI_Models\hackson\AWS\.env.local` 与 `recall-agent/.env.local`（后者给 Next.js 读）
 
 ---
 
-## 未完成 / 明天接着做
+## 未完成 / 接着做
 
-### P0 — 接通 Bedrock（黑客松 AWS 合规）
+### P0 — 接通 Bedrock
 
-卡点：**IAM 还没设完**，还没有可用的 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`。
+✅ 已完成。不必再走 IAM 建用户流程，除非轮换密钥。
 
-按顺序：
+### P1 — 演示 CRDB 工具 ②③④（下一步优先）
 
-1. **确认区域**  
-   - 控制台右上角：`us-east-1`（推荐，与默认 env 一致）
-
-2. **IAM 在哪**  
-   - 顶部搜索 `IAM`，或打开：https://console.aws.amazon.com/iam/  
-   - **Users** → 你的用户（或新建 `recall-bedrock`）  
-   - **Permissions** → 附加 **`AmazonBedrockFullAccess`**（开发期最快）  
-   - **Security credentials** → **Create access key**  
-     - 用途选：Application running outside AWS  
-     - 保存 Access Key ID + Secret（只显示一次）
-
-3. **Bedrock 控制台验证（无 Model access 页）**  
-   - https://console.aws.amazon.com/bedrock  
-   - **Playgrounds** → Chat / Text 试 Claude 或 Haiku  
-   - Titan Embed V2：Embeddings 相关 playground 或 API 测  
-   - Anthropic 可能有**首次使用条款**弹窗，点同意即可
-
-4. **改 `recall-agent/.env.local`**
-
-```env
-AI_PROVIDER=bedrock
-EMBEDDING_PROVIDER=bedrock
-EMBEDDING_DIMS=1024
-
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-
-BEDROCK_CHAT_MODEL=anthropic.claude-3-haiku-20240307-v1:0
-# 或控制台 Model catalog 里复制的实际 Model ID
-BEDROCK_EMBED_MODEL=amazon.titan-embed-text-v2:0
-```
-
-5. **重启 dev 并测**
-
-```powershell
-cd D:\AI_Models\hackson\AWS\recall-agent
-npm run dev
-```
-
-浏览器两轮对话验证记忆；确认不再依赖 OpenCode 也能跑（OpenCode 可留作备用，不删即可）。
-
-### P1 — 演示 CRDB 工具 ②③④
+规则至少 2 项，现在只有 ①。再做 1 项即可达标；③ 最快。
 
 | 工具 | 待做 |
 |------|------|
-| Managed MCP | 控制台 `cockroachlabs.cloud/mcp` 配进 Cursor/Claude，只读查表 / EXPLAIN |
-| ccloud CLI | 安装 → `ccloud auth login` → 集群 list / 状态 JSON 截图 |
-| Skills Repo | 开发期用过一次即可，README 写一句 |
+| ③ ccloud CLI | 本机未装。安装 → `ccloud auth login` → `ccloud cluster list` / `get` 留 JSON 截图 |
+| ② Managed MCP | 角色 SQL 已写好。控制台建 `recall_analyst` 密码，把 MCP 指过去，跑 `SELECT * FROM v_memory_funnel` |
+| ④ Skills Repo | 已完成（`skills/memory-analytics/`） |
 
 ### P2 — AWS 部署（可选但加分）
 
-- 前端 S3 / CloudFront，或 API 上 Lambda / 容器  
+- 前端 S3 / CloudFront，或 API 上 Lambda / 容器
 - 与 Bedrock 同账号叙事更清晰
+- **有余力再做**；先不要为了「取消付费计划」去关户
 
 ### P3 — 提交物料
 
-- [ ] 2–3 分钟演示视频（写记忆 → 第二轮命中 → `/memory` 删除）  
-- [ ] README 合规对照表 + 架构图  
-- [ ] 轮换已暴露的密钥  
-- [ ] 确认 `.env*` 未进 git
+- [ ] 2–3 分钟演示视频（写记忆 → 第二轮命中 → `/memory` 删除）
+- [x] README 合规对照表（①②③④ + Bedrock）
+- [x] 密钥不轮换，只留在本文件夹 `.env.local`（根目录 + `recall-agent/`）
+- [ ] 提交前再确认一次：`git status` 里没有 `.env.local`
+- [ ] 提交未入库改动：`.env.example`、`chat.ts` 默认模型、`scripts/probe-bedrock.mjs`、根目录 `.gitignore`
 
 ### P4 — 可选增强（有时间再做）
 
-- Titan 替换 local hash 后，语义检索质量会明显好于现在  
-- 微调 dedupe L2 阈值  
+- Titan 已替换 local hash（语义检索已比之前好）
+- 微调 dedupe L2 阈值
 - 不要再堆新大功能
 
 ---
 
-## 明天启动命令速查
+## AWS 账号备忘（别再踩坑）
+
+- 当前是 **Paid account plan**，**不能改回 Free**
+- 不是包月；账单页没有「扣款计划」= 正常
+- 查看用量 / 抵扣金：
+  - https://console.aws.amazon.com/billing/home
+  - https://console.aws.amazon.com/billing/home#/credits
+  - https://console.aws.amazon.com/billing/home#/freetier
+- 建议建 **$1 Budgets 告警**，避免意外扣卡
+- **不要关户**（除非确定放弃这个号和 Bedrock 演示）
+- 若坚持关户：必须 Root → 右上角账号名 → Account → Close account → 输入 12 位 Account ID
+  - 90 天内可找 Support 重开；关户邮箱不能直接拿去注册新号
+  - 关完后把 `.env.local` 改回 `AI_PROVIDER=openai` + `EMBEDDING_PROVIDER=local`
+
+关户文档：https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-closing.html
+
+---
+
+## 启动命令速查
 
 ```powershell
 cd D:\AI_Models\hackson\AWS\recall-agent
 
-# 确认 .env.local 仍在（DATABASE_URL + 当前 AI 配置）
-# 若只跑 OpenCode 备用：
+# 当前默认走 Bedrock（.env.local 已配）
 npm run dev
 # 浏览器 http://localhost:3000
+
+# 探测哪些 Bedrock 模型还能用
+# node scripts/probe-bedrock.mjs
 
 # Schema 重跑（一般不需要）
 # node scripts/apply-schema.mjs
 
-# 两轮记忆冒烟
+# 两轮记忆冒烟（需 dev 已启动）
 # node scripts/e2e-chat.mjs
 ```
 
 演示话术（英文）：
 
-1. `I prefer concise answers. I work in TypeScript on AWS.`  
-2. `What do you know about my preferences?`  
+1. `I prefer concise answers. I work in TypeScript on AWS.`
+2. `What do you know about my preferences?`
 3. 看右侧 Memory hits / ADD；再打开 `/memory`
 
 ---
@@ -206,14 +221,19 @@ npm run dev
 ```
 D:\AI_Models\hackson\AWS\
 ├── PROGRESS.md              ← 本文件
-├── README.md                ← 架构说明（仓库入口）
+├── README.md                ← 架构说明 + 评委对照表
+├── .env.local               ← 本地密钥副本（gitignore，不上 GitHub）
+├── .mcp.json                ← 只读 analytics MCP
+├── mcp_readonly_role.sql    ← recall_analyst 只授权 v_*
+├── skills/memory-analytics/ ← ④ Agent Skill
 ├── infra_v3.*               ← 本地架构图（gitignore，不上 GitHub）
 ├── schema_v3.sql            ← 根目录 schema 副本
 └── recall-agent/            ← 主应用
-    ├── .env.local           ← 密钥（勿提交）
+    ├── .env.local           ← 运行时密钥（Next.js 读这个；勿提交）
     ├── .env.example
     ├── sql/schema_v3.sql
     ├── scripts/
+    │   └── probe-bedrock.mjs
     └── src/
         ├── app/             # UI + API routes
         ├── components/
@@ -228,19 +248,17 @@ D:\AI_Models\hackson\AWS\
 
 ## 风险与注意
 
-1. **密钥曾在对话中出现** → 提交/公开仓库前轮换 CRDB 密码与 API Key。  
-2. **OpenCode 额度/可用性** 不保证；Bedrock 接通后以 AWS 为主叙事。  
-3. **local embedding** 适合链路演示，评委若深挖语义，优先切 Titan。  
-4. 新账号/组织账号可能被 SCP 限制 Bedrock，Playground 失败先查 IAM/计费/区域。
+1. **密钥不轮换**，只放本文件夹 `.env.local`。根目录与 `recall-agent/.gitignore` 都忽略它，**不要 `git add` 任何 `.env.local`**。
+2. OpenCode 仅备用；对外叙事以 **Bedrock + CRDB** 为主。
+3. Paid plan 不会自动扣月租，但 Bedrock 按量计费；设 $1 告警。
+4. 关户会丢掉 IAM / Bedrock / 剩余抵扣金，黑客松期间不要关。
 
 ---
 
-## 明天第一件事（checklist）
+## 下一步第一件事（checklist）
 
-- [ ] 打开 IAM，建好用户权限 + Access Key  
-- [ ] Bedrock Playground 在 us-east-1 跑通一句  
-- [ ] 写入 `.env.local` 并 `AI_PROVIDER=bedrock`  
-- [ ] `npm run dev` 端到端记忆两轮  
-- [ ] （有余力）MCP 或 ccloud 截一张演示图  
+- [ ] 安装 `ccloud`，`auth login`，集群 `list` / `get` 留一张 JSON 截图
+- [ ] 给 `recall_analyst` 设密码，Cloud MCP 连上后跑 `v_memory_funnel`
+- [ ] 有余力再拍 2–3 分钟演示视频
 
-**续作时对 AI 说：**「按 `PROGRESS.md` 从 IAM/Bedrock 接着做。」
+**续作时对 AI 说：**「按 `PROGRESS.md` 从 P1 ccloud / MCP 接着做。」

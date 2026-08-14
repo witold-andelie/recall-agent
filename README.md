@@ -23,11 +23,11 @@ One CockroachDB cluster is the record system: ops rows, `VECTOR(1024)`, PostgreS
 | **MemoryLink** | Graph edges: `supersedes` \| `duplicates` \| `derived_from` |
 | **MemoryUsageEvent** | Per-hit analytics: vector / text / recency / usage / hybrid scores |
 | **HybridScore** | `α·vec + β·ts_rank + γ·recency + δ·usage` in one CTE (CRDB vector index accelerates L2 `<->`, not cosine) |
-| **Chat / Embed models** | Bedrock (Claude + Titan 1024-d) or OpenAI-compatible chat + local hash embed fallback |
+| **Chat / Embed models** | **Amazon Bedrock** — Claude Haiku 4.5 + Titan Embed V2 (1024-d); OpenAI-compatible chat as fallback |
 | **CockroachDB** | Serverless / PG wire; distributed **vector index** with `user_id` prefix; GIN on `content_tsv` |
-| **Analytics views** | `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown` |
-| **CRDB toolchain** | ① vector index (runtime) · ② Managed MCP · ③ `ccloud` CLI · ④ Agent Skills repo |
-| **AWS (planned)** | Bedrock (required) · Lambda / S3 (optional deploy) |
+| **Analytics views** | `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown`, `v_duplicate_clusters` |
+| **CRDB toolchain** | ① vector index (runtime) · ② Managed MCP (read-only role) · ③ `ccloud` CLI · ④ Agent Skills |
+| **AWS** | Bedrock (live) · Lambda / S3 (optional later) |
 
 ### Memory lifecycle (the product loop)
 
@@ -56,16 +56,33 @@ Conversation control is the same tenant rule: authenticate (anonymous first logi
 
 Demo path: Managed MCP or `ccloud` against the cluster, `EXPLAIN` the hybrid statement, then `SELECT * FROM v_memory_funnel`.
 
-### Deploy & hackathon map
+### Hackathon requirements
 
-| Requirement | Where |
+**CockroachDB tools (4/4 artifacts in-repo):**
+
+| Tool | How it is used |
 |---|---|
-| CRDB persistent memory | `memories` + write path in `recall-agent/src/lib/memory/dedupe.ts` |
-| ① Distributed vector index | `CREATE VECTOR INDEX (user_id, embedding)` + `<->` in `hybrid.ts` |
-| ② Managed MCP | Ops/demo (read-only SQL + audit), not in the request path |
-| ③ ccloud CLI | Cluster list / status JSON |
-| ④ Agent Skills repo | Dev-time CRDB guidance |
-| AWS | `AI_PROVIDER=bedrock` in `recall-agent/src/lib/ai/` |
+| ① Distributed vector index | `CREATE VECTOR INDEX memories_user_embedding_vec_idx (user_id, embedding)` in [`schema_v3.sql`](./schema_v3.sql). Runtime ANN is `ORDER BY embedding <-> $q` under `user_id` in [`hybrid.ts`](./recall-agent/src/lib/memory/hybrid.ts). |
+| ② Managed MCP server | Ops/demo only — not on the chat request path. [`.mcp.json`](./.mcp.json) wires a **read-only** Postgres MCP. [`mcp_readonly_role.sql`](./mcp_readonly_role.sql) creates `recall_analyst` with `SELECT` on the four `v_*` views only (no base tables, no embeddings, no message text). Point Cockroach Cloud MCP or `MCP_DATABASE_URL` at that user. |
+| ③ ccloud CLI | Cluster list / status JSON (`ccloud cluster list --output json`). Schema apply: `psql "$DATABASE_URL" -f schema_v3.sql` then `-f mcp_readonly_role.sql`. |
+| ④ Agent Skills repo | [`skills/memory-analytics/`](./skills/memory-analytics/) — how to read `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown`, `v_duplicate_clusters` (grain, filters, preview rules). |
+
+**AWS (1+ required):**
+
+| Service | How it is used |
+|---|---|
+| Amazon Bedrock | Live path when `AI_PROVIDER=bedrock`. Chat: `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Embed: `amazon.titan-embed-text-v2:0` (1024-d, matches `VECTOR(1024)`). Code: [`recall-agent/src/lib/ai/`](./recall-agent/src/lib/ai/). |
+| Lambda / S3 | Optional later deploy. Not required for the memory demo. |
+
+Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete → next turn changes. Then MCP or `ccloud` + `EXPLAIN` the hybrid statement and `SELECT * FROM v_memory_funnel`.
+
+### Known limitations
+
+- CockroachDB vector indexes accelerate **L2 `<->`**, not cosine. Hybrid weights assume that operator.
+- `v_hybrid_score_breakdown.retrieval_hits` is **one row per memory hit**, not per chat turn. Funnel and reuse views are the right grain for “how many turns / how many memories.”
+- `v_memory_reuse.content_preview` is `left(content, 120)` — treat as an identifier, not text to quote.
+- MCP is a read-only analytics channel. The agent request path uses the app’s `DATABASE_URL` user, never `recall_analyst`.
+- Older on-demand Claude 3.x model IDs are often EOL on new accounts. Prefer the `us.*` inference-profile ID or Amazon Nova. Probe with `recall-agent/scripts/probe-bedrock.mjs`.
 
 ---
 
@@ -74,9 +91,10 @@ Demo path: Managed MCP or `ccloud` against the cluster, `EXPLAIN` the hybrid sta
 ```bash
 cd recall-agent
 cp .env.example .env.local
-# set DATABASE_URL and either OpenAI-compatible keys or Bedrock creds
+# set DATABASE_URL and Bedrock (or OpenAI-compatible) keys
 
 psql "$DATABASE_URL" -f sql/schema_v3.sql
+psql "$DATABASE_URL" -f ../mcp_readonly_role.sql   # optional: MCP read-only role
 # if needed: SET CLUSTER SETTING feature.vector_index.enabled = true;
 
 npm install

@@ -83,7 +83,7 @@ async function* streamBedrock(
   const region = process.env.AWS_REGION || "us-east-1";
   const modelId =
     process.env.BEDROCK_CHAT_MODEL ||
-    "anthropic.claude-3-5-sonnet-20240620-v1:0";
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0";
   const client = new BedrockRuntimeClient({ region });
 
   const system = messages

@@ -5,3 +5,14 @@
 /infra_v3.png
 /infra_v3.svg
 /infra_v3.txt
+
+# Local secrets — keep in this folder, never push
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
+secrets.env
+**/secrets.env
+*.pem
