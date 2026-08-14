@@ -4,38 +4,60 @@ Official hosted endpoint (no local proxy):
 
 `https://cockroachlabs.cloud/mcp`
 
-This is **not** `mcp-server-postgres` and **not** on the chat request path.
-Grok / Cursor / VS Code / Claude connect as an AI client. Default: read-only,
-audited by Cockroach Labs.
+Not on the chat request path. Default: read-only, audited by Cockroach Labs.
 
-## Project config
+## Claude Code (this is the intended client)
 
-| Client | File |
-|---|---|
-| Grok | `.grok/config.toml` → `[mcp_servers.cockroachdb-cloud]` |
-| Cursor / generic | `.mcp.json`, `.cursor/mcp.json` |
+Cloud Console snippet (Connect → MCP):
 
-All point at `https://cockroachlabs.cloud/mcp` with header:
-
+```json
+{
+  "mcpServers": {
+    "cockroachdb-cloud": {
+      "type": "http",
+      "url": "https://cockroachlabs.cloud/mcp"
+    }
+  }
+}
 ```
-mcp-cluster-id: shadow-kelpie-31718
+
+That file is already at repo-root [`.mcp.json`](../.mcp.json). Claude Code loads it when you open this folder.
+
+Or add it from a terminal **in the repo root**:
+
+```powershell
+cd D:\AI_Models\hackson\AWS
+claude mcp add cockroachdb-cloud https://cockroachlabs.cloud/mcp --transport http
 ```
 
-If the Cloud Console URL is `cockroachlabs.cloud/cluster/<UUID>`, set that UUID
-instead (env `COCKROACH_CLUSTER_ID`).
+Then in Claude Code:
 
-## Auth
+1. `/mcp` → `cockroachdb-cloud` → Authenticate (browser OAuth)
+2. Ask: list tables in `defaultdb`, then `EXPLAIN` the hybrid ANN, then `SELECT * FROM v_memory_funnel`
 
-OAuth in the MCP client (browser). Do **not** commit a service-account API key.
+## Cursor (same endpoint)
 
-Grok: after opening this repo, complete the OAuth prompt for
-`cockroachdb-cloud`. Then:
+[`.cursor/mcp.json`](../.cursor/mcp.json) uses the same URL. Settings → MCP → Connect → OAuth.
 
-```text
-list_tables / get_table_schema on memories
-explain_query on the ANN statement in docs/explain-hybrid-ann.md
-select_query: SELECT * FROM v_memory_funnel ORDER BY day DESC LIMIT 14
+## Verified live (Claude Code + Cloud MCP)
+
+Date: 2026-08-14. Client: Claude Code after OAuth to `https://cockroachlabs.cloud/mcp`.
+
+- `list_tables` on `defaultdb`: `users`, `auth_sessions`, `threads`, `messages`, `memories`, `memory_links`, `memory_usage_events`, `memory_extraction_log`, plus views `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown`, `v_duplicate_clusters`.
+- `select_query` on `v_memory_funnel`: 5 rows (e.g. user `…ddb2` on 2026-08-14: 7 messages, 8 extractions, 8 ADD).
+- First `EXPLAIN` landed on the **funnel view** (hash join of `messages` + `memory_extraction_log`). That plan correctly has **no** vector index — it is not the hybrid ANN.
+
+To get `vector search` via MCP, ask Claude Code to `explain_query` this statement (bind a real `user_id` + query vector, or use the form in `docs/explain-hybrid-ann.md`):
+
+```sql
+SELECT id
+FROM memories@memories_user_embedding_vec_idx
+WHERE user_id = $1::uuid
+ORDER BY embedding <-> $2::vector
+LIMIT 80;
 ```
+
+Do **not** add the suggested `CREATE INDEX ON messages (role) STORING (user_id, created_at)` for the demo — the table is tiny; the vector story is on `memories`.
 
 ## What Chat still uses
 

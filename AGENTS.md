@@ -35,5 +35,5 @@ Use the official Cloud MCP, not a local Postgres MCP:
 
 - Put `.env.local` or any secret in git
 - Put Cloud API keys in committed MCP config (OAuth only)
-- Run MCP or `ccloud` on the chat request path
+- Run MCP on the chat request path
 - Replace the official skills with a homemade “CRDB expertise” skill

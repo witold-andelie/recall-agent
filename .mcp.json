@@ -2,10 +2,7 @@
   "mcpServers": {
     "cockroachdb-cloud": {
       "type": "http",
-      "url": "https://cockroachlabs.cloud/mcp",
-      "headers": {
-        "mcp-cluster-id": "${COCKROACH_CLUSTER_ID:-shadow-kelpie-31718}"
-      }
+      "url": "https://cockroachlabs.cloud/mcp"
     }
   }
 }

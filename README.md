@@ -26,7 +26,7 @@ One CockroachDB cluster is the record system: ops rows, `VECTOR(1024)`, PostgreS
 | **Chat / Embed models** | **Amazon Bedrock** — Claude Haiku 4.5 + Titan Embed V2 (1024-d); OpenAI-compatible chat as fallback |
 | **CockroachDB** | Serverless / PG wire; distributed **vector index** with `user_id` prefix; GIN on `content_tsv` |
 | **Analytics views** | `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown`, `v_duplicate_clusters` |
-| **CRDB toolchain** | ① vector index (runtime) · ② Managed MCP (read-only role) · ③ `ccloud` CLI · ④ Agent Skills |
+| **CRDB toolchain** | (1) distributed vector index (runtime) · (2) Managed Cloud MCP · (3) official Agent Skills repo |
 | **AWS** | Bedrock (live) · Lambda / S3 (optional later) |
 
 ### Memory lifecycle (the product loop)
@@ -54,18 +54,17 @@ Conversation control is the same tenant rule: authenticate (anonymous first logi
 
 **Analytics** — daily funnel (messages → extractions → ADD/UPDATE/SKIP), reuse buckets, score-component averages.
 
-Demo path: Managed MCP or `ccloud` against the cluster, `EXPLAIN` the hybrid statement, then `SELECT * FROM v_memory_funnel`.
+Demo path: Claude Code + Managed Cloud MCP, `EXPLAIN` the hybrid ANN statement, then `SELECT * FROM v_memory_funnel`.
 
 ### Hackathon requirements
 
-**CockroachDB tools (4/4 artifacts in-repo):**
+**CockroachDB tools we use** (ccloud CLI is **not** used and is not claimed):
 
 | Tool | How it is used |
 |---|---|
-| ① Distributed vector index | `CREATE VECTOR INDEX memories_user_embedding_vec_idx (user_id, embedding)` in [`schema_v3.sql`](./schema_v3.sql). Runtime ANN is `ORDER BY embedding <-> $q` under `user_id` in [`hybrid.ts`](./recall-agent/src/lib/memory/hybrid.ts). |
-| ② Managed MCP server | Official Cloud MCP: `https://cockroachlabs.cloud/mcp` in [`.mcp.json`](./.mcp.json), [`.grok/config.toml`](./.grok/config.toml), [`.cursor/mcp.json`](./.cursor/mcp.json). Header `mcp-cluster-id` (cluster `shadow-kelpie-31718`). Read-only + audit by default. Setup: [`docs/managed-mcp.md`](./docs/managed-mcp.md). Not on the chat request path. |
-| ③ ccloud CLI | Cluster list / status JSON (`ccloud cluster list --output json`). Schema apply: `psql "$DATABASE_URL" -f schema_v3.sql` then `-f mcp_readonly_role.sql`. |
-| ④ Agent Skills repo | **Required:** official [cockroachlabs/cockroachdb-skills](https://github.com/cockroachlabs/cockroachdb-skills) as submodule [`vendor/cockroachdb-skills/`](./vendor/cockroachdb-skills). Hybrid ANN was validated with skill `cockroachdb-sql` (`EXPLAIN` → `vector search`): [`docs/explain-hybrid-ann.md`](./docs/explain-hybrid-ann.md). Agents must load the official skills for any further CRDB work (`AGENTS.md`). Overlay: [`skills/memory-analytics/`](./skills/memory-analytics/). |
+| Distributed vector index | `CREATE VECTOR INDEX memories_user_embedding_vec_idx (user_id, embedding)` in [`schema_v3.sql`](./schema_v3.sql). Runtime ANN is `ORDER BY embedding <-> $q` under `user_id` in [`hybrid.ts`](./recall-agent/src/lib/memory/hybrid.ts). |
+| Managed MCP server | Official Cloud MCP `https://cockroachlabs.cloud/mcp`. Claude Code reads [`.mcp.json`](./.mcp.json) (`type: http`). Cursor: [`.cursor/mcp.json`](./.cursor/mcp.json). Verified live: [`docs/managed-mcp.md`](./docs/managed-mcp.md). Not on the chat request path. |
+| Agent Skills repo | Official [cockroachlabs/cockroachdb-skills](https://github.com/cockroachlabs/cockroachdb-skills) as submodule [`vendor/cockroachdb-skills/`](./vendor/cockroachdb-skills). Hybrid ANN validated with skill `cockroachdb-sql` (`EXPLAIN` → `vector search`): [`docs/explain-hybrid-ann.md`](./docs/explain-hybrid-ann.md). Overlay: [`skills/memory-analytics/`](./skills/memory-analytics/). |
 
 **AWS (1+ required):**
 
@@ -74,7 +73,7 @@ Demo path: Managed MCP or `ccloud` against the cluster, `EXPLAIN` the hybrid sta
 | Amazon Bedrock | Live path when `AI_PROVIDER=bedrock`. Chat: `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Embed: `amazon.titan-embed-text-v2:0` (1024-d, matches `VECTOR(1024)`). Code: [`recall-agent/src/lib/ai/`](./recall-agent/src/lib/ai/). |
 | Lambda / S3 | Optional later deploy. Not required for the memory demo. |
 
-Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete → next turn changes. Then MCP or `ccloud` + `EXPLAIN` the hybrid statement and `SELECT * FROM v_memory_funnel`.
+Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete → next turn changes. Then Claude Code + Cloud MCP: `EXPLAIN` the hybrid ANN and `SELECT * FROM v_memory_funnel`.
 
 ### Known limitations
 
@@ -82,7 +81,7 @@ Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete →
 - `v_hybrid_score_breakdown.retrieval_hits` is **one row per memory hit**, not per chat turn. Funnel and reuse views are the right grain for “how many turns / how many memories.”
 - `v_memory_reuse.content_preview` is `left(content, 120)` — treat as an identifier, not text to quote.
 - Official CockroachDB skills are **dev-time**. Chat does not invoke them. After clone: `git submodule update --init --recursive`.
-- Managed MCP is the official Cloud HTTP server. First connect needs OAuth in Grok/Cursor. Chat still uses `DATABASE_URL` + `pg`, not MCP.
+- Managed MCP is the official Cloud HTTP server. First connect needs OAuth in Claude Code (or Cursor). Chat still uses `DATABASE_URL` + `pg`, not MCP.
 - Older on-demand Claude 3.x model IDs are often EOL on new accounts. Prefer the `us.*` inference-profile ID or Amazon Nova. Probe with `recall-agent/scripts/probe-bedrock.mjs`.
 
 ---
@@ -110,7 +109,7 @@ Demo:
 2. `What do you know about my preferences?`
 3. Memory hits (hybrid scores) and New writes (ADD / UPDATE / SKIP) on the right.
 4. `/memory` — search or delete; the next turn reflects deletes.
-5. Switch mid-thread: `用中文再说一遍我的偏好。` — reply language follows this turn.
+5. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.
 
 ### API
 

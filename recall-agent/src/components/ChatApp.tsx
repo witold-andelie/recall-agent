@@ -155,7 +155,7 @@ export function ChatApp() {
                 <p className="mt-3 text-xs text-slate-500">
                   Try: &quot;I prefer concise answers and I use TypeScript at
                   work.&quot; Then ask: &quot;What do you know about me?&quot;
-                  Switch mid-thread: &quot;用中文再说一遍我的偏好。&quot;
+                  Switch mid-thread: &quot;Responde en espanol: que sabes de mi?&quot;
                 </p>
               </div>
             )}

@@ -1,6 +1,6 @@
 # Recall — Persistent Memory Agent
 
-Hackathon build: **English-only** AI agent with **CockroachDB** as the system of record for memory (vector + PostgreSQL full-text hybrid SQL), deployable on **AWS**.
+Hackathon build: AI agent with **CockroachDB** as the system of record for memory (vector + PostgreSQL full-text hybrid SQL), on **AWS**. UI chrome is English; replies follow the latest user-message language.
 
 ## Stack
 
@@ -31,7 +31,7 @@ Open http://localhost:3000
 2. New message: “What do you know about my preferences?”
 3. Watch **Memory hits** (hybrid scores) and **New writes** (ADD/UPDATE/SKIP).
 4. `/memory` — search / delete; next chat turn reflects deletes.
-5. Mid-thread language switch: `用中文再说一遍我的偏好。`
+5. Mid-thread language switch: `Responde en espanol: que sabes de mi?`
 
 ## API
 
@@ -51,9 +51,8 @@ Repo-root artifacts (parent of this app) are the judge checklist.
 | CRDB persistent memory | `memories` + write path in `src/lib/memory/dedupe.ts` |
 | ① Vector index | `CREATE VECTOR INDEX (user_id, embedding)` in `sql/schema_v3.sql`; `<->` in `src/lib/memory/hybrid.ts` |
 | Hybrid FTS | `content_tsv` + `ts_rank` fused with recency / hits in `hybrid.ts` |
-| ② Managed MCP | Official `https://cockroachlabs.cloud/mcp` — see `../docs/managed-mcp.md` |
-| ③ ccloud CLI | `ccloud cluster list --output json` (ops/demo) |
-| ④ Agent Skills | Official `../vendor/cockroachdb-skills` (mandatory for CRDB work). Overlay: `../skills/memory-analytics/` |
+| Managed MCP | Official `https://cockroachlabs.cloud/mcp` — see `../docs/managed-mcp.md` |
+| Agent Skills | Official `../vendor/cockroachdb-skills`. Overlay: `../skills/memory-analytics/` |
 | AWS Bedrock | `AI_PROVIDER=bedrock` — Claude Haiku 4.5 + Titan V2 in `src/lib/ai/` |
 
 ## Scripts
