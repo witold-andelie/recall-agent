@@ -24,7 +24,7 @@
 | # | 工具 | 状态 |
 |---|------|------|
 | ① | 分布式向量索引 | ✅ 已建 `CREATE VECTOR INDEX`，hybrid 用 `<->` |
-| ② | 托管 MCP Server | ✅ 仓库已有 `.mcp.json` + `mcp_readonly_role.sql`（`recall_analyst` 只能读 `v_*`）；控制台连上即可演示 |
+| ② | 托管 MCP Server | ✅ 已改接官方 `https://cockroachlabs.cloud/mcp`（`.mcp.json` / `.grok/config.toml` / `.cursor/mcp.json`）。本机 `grok mcp doctor` 已打到该端点；**还差一次 OAuth 登录** |
 | ③ | ccloud CLI | ⬜ 未装、未演示（本机没有 `ccloud`） |
 | ④ | Agent Skills Repo | ✅ 官方 `cockroachlabs/cockroachdb-skills` 已 submodule 到 `vendor/cockroachdb-skills`，`AGENTS.md` 强制先读；产品 overlay 仍是 `skills/memory-analytics/` |
 

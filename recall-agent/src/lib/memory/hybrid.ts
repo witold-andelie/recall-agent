@@ -8,9 +8,9 @@ const DELTA = 0.1;
 
 /**
  * P3 / P16 — hybrid retrieval in one SQL round-trip:
- * ANN uses only the vector-index prefix (`user_id` + `<->`) so CRDB can
- * plan `vector search` on memories_user_embedding_vec_idx. Soft-delete /
- * null embedding are filtered after over-fetch.
+ * ANN binds $1/$2 directly (not via CTE join). A vector-index hint inside
+ * a larger CTE that reads q.q_emb is rejected by CRDB. Soft-delete / null
+ * embedding are filtered after over-fetch.
  */
 export async function hybridRetrieve(opts: {
   userId: string;
@@ -33,10 +33,10 @@ export async function hybridRetrieve(opts: {
     vec_ann AS (
       SELECT
         m.id,
-        (1.0 / (1.0 + (m.embedding <-> q.q_emb))) AS score_vec
-      FROM memories@memories_user_embedding_vec_idx AS m, q
-      WHERE m.user_id = q.user_id
-      ORDER BY m.embedding <-> q.q_emb
+        (1.0 / (1.0 + (m.embedding <-> $2::vector))) AS score_vec
+      FROM memories@memories_user_embedding_vec_idx AS m
+      WHERE m.user_id = $1::uuid
+      ORDER BY m.embedding <-> $2::vector
       LIMIT 80
     ),
     vec AS (
@@ -80,7 +80,7 @@ export async function hybridRetrieve(opts: {
       FROM memories m
       LEFT JOIN vec v ON v.id = m.id
       LEFT JOIN txt t ON t.id = m.id
-      WHERE m.user_id = (SELECT user_id FROM q)
+      WHERE m.user_id = $1::uuid
         AND m.deleted_at IS NULL
         AND (v.id IS NOT NULL OR t.id IS NOT NULL)
     )
@@ -94,7 +94,7 @@ export async function hybridRetrieve(opts: {
       )::float8 AS hybrid_score
     FROM fused f
     ORDER BY hybrid_score DESC
-    LIMIT (SELECT k FROM q)
+    LIMIT $4::int
     `,
     [opts.userId, vec, opts.queryText, k],
   );

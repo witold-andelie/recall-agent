@@ -63,7 +63,7 @@ Demo path: Managed MCP or `ccloud` against the cluster, `EXPLAIN` the hybrid sta
 | Tool | How it is used |
 |---|---|
 | ① Distributed vector index | `CREATE VECTOR INDEX memories_user_embedding_vec_idx (user_id, embedding)` in [`schema_v3.sql`](./schema_v3.sql). Runtime ANN is `ORDER BY embedding <-> $q` under `user_id` in [`hybrid.ts`](./recall-agent/src/lib/memory/hybrid.ts). |
-| ② Managed MCP server | Ops/demo only — not on the chat request path. [`.mcp.json`](./.mcp.json) wires a **read-only** Postgres MCP. [`mcp_readonly_role.sql`](./mcp_readonly_role.sql) creates `recall_analyst` with `SELECT` on the four `v_*` views only (no base tables, no embeddings, no message text). Point Cockroach Cloud MCP or `MCP_DATABASE_URL` at that user. |
+| ② Managed MCP server | Official Cloud MCP: `https://cockroachlabs.cloud/mcp` in [`.mcp.json`](./.mcp.json), [`.grok/config.toml`](./.grok/config.toml), [`.cursor/mcp.json`](./.cursor/mcp.json). Header `mcp-cluster-id` (cluster `shadow-kelpie-31718`). Read-only + audit by default. Setup: [`docs/managed-mcp.md`](./docs/managed-mcp.md). Not on the chat request path. |
 | ③ ccloud CLI | Cluster list / status JSON (`ccloud cluster list --output json`). Schema apply: `psql "$DATABASE_URL" -f schema_v3.sql` then `-f mcp_readonly_role.sql`. |
 | ④ Agent Skills repo | **Required:** official [cockroachlabs/cockroachdb-skills](https://github.com/cockroachlabs/cockroachdb-skills) as submodule [`vendor/cockroachdb-skills/`](./vendor/cockroachdb-skills). Hybrid ANN was validated with skill `cockroachdb-sql` (`EXPLAIN` → `vector search`): [`docs/explain-hybrid-ann.md`](./docs/explain-hybrid-ann.md). Agents must load the official skills for any further CRDB work (`AGENTS.md`). Overlay: [`skills/memory-analytics/`](./skills/memory-analytics/). |
 
@@ -78,11 +78,11 @@ Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete →
 
 ### Known limitations
 
-- CockroachDB vector indexes accelerate **L2 `<->`**, not cosine. Hybrid weights assume that operator. The ANN CTE is only `WHERE user_id = $1 ORDER BY embedding <-> $q` (plus an index hint) so the planner uses `vector search`; soft-delete and `kind` are applied after over-fetch.
+- CockroachDB vector indexes accelerate **L2 `<->`**, not cosine. Hybrid weights assume that operator. The ANN CTE binds `$1`/`$2` directly (an index hint plus `JOIN q` is rejected). Soft-delete and `kind` are applied after over-fetch.
 - `v_hybrid_score_breakdown.retrieval_hits` is **one row per memory hit**, not per chat turn. Funnel and reuse views are the right grain for “how many turns / how many memories.”
 - `v_memory_reuse.content_preview` is `left(content, 120)` — treat as an identifier, not text to quote.
 - Official CockroachDB skills are **dev-time**. Chat does not invoke them. After clone: `git submodule update --init --recursive`.
-- MCP is a read-only analytics channel. The agent request path uses the app’s `DATABASE_URL` user, never `recall_analyst`.
+- Managed MCP is the official Cloud HTTP server. First connect needs OAuth in Grok/Cursor. Chat still uses `DATABASE_URL` + `pg`, not MCP.
 - Older on-demand Claude 3.x model IDs are often EOL on new accounts. Prefer the `us.*` inference-profile ID or Amazon Nova. Probe with `recall-agent/scripts/probe-bedrock.mjs`.
 
 ---

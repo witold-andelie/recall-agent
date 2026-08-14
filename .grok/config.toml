@@ -1,0 +1,6 @@
+[mcp_servers.cockroachdb-cloud]
+url = "https://cockroachlabs.cloud/mcp"
+enabled = true
+
+[mcp_servers.cockroachdb-cloud.headers]
+mcp-cluster-id = "shadow-kelpie-31718"

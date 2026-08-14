@@ -6,6 +6,7 @@ Rules applied:
 - `00-fundamental-principles.md` — UUID tenant key, no sequential hotspot
 - `04-optimization.md` — index hint `table@index`; EXPLAIN required
 - Query shape is prefix-only (`user_id` + `<->`) so CRDB plans **vector search**
+- Bind `$1` / `$2` in the ANN CTE. Hint + `JOIN q` / `q.q_emb` inside the full hybrid statement is rejected: `index "memories_user_embedding_vec_idx" cannot be used for this query`
 
 Connection: CockroachDB Cloud via `pg` wire (`DATABASE_URL`). `cockroach` CLI is not installed on this machine.
 

@@ -23,8 +23,17 @@ Product-only overlay (not a substitute for the official repo):
 
 - `skills/memory-analytics/` — how to read *this* app’s `v_*` views
 
+## Managed MCP (required for judge / ops SQL)
+
+Use the official Cloud MCP, not a local Postgres MCP:
+
+- URL: `https://cockroachlabs.cloud/mcp`
+- Project servers: `.grok/config.toml`, `.mcp.json`, `.cursor/mcp.json`
+- After OAuth: `list_tables`, `get_table_schema`, `explain_query`, `select_query` on `v_*`
+
 ## Do not
 
 - Put `.env.local` or any secret in git
+- Put Cloud API keys in committed MCP config (OAuth only)
 - Run MCP or `ccloud` on the chat request path
 - Replace the official skills with a homemade “CRDB expertise” skill

@@ -51,7 +51,7 @@ Repo-root artifacts (parent of this app) are the judge checklist.
 | CRDB persistent memory | `memories` + write path in `src/lib/memory/dedupe.ts` |
 | ① Vector index | `CREATE VECTOR INDEX (user_id, embedding)` in `sql/schema_v3.sql`; `<->` in `src/lib/memory/hybrid.ts` |
 | Hybrid FTS | `content_tsv` + `ts_rank` fused with recency / hits in `hybrid.ts` |
-| ② Managed MCP | `../.mcp.json` + `../mcp_readonly_role.sql` (`recall_analyst` → `v_*` only) |
+| ② Managed MCP | Official `https://cockroachlabs.cloud/mcp` — see `../docs/managed-mcp.md` |
 | ③ ccloud CLI | `ccloud cluster list --output json` (ops/demo) |
 | ④ Agent Skills | Official `../vendor/cockroachdb-skills` (mandatory for CRDB work). Overlay: `../skills/memory-analytics/` |
 | AWS Bedrock | `AI_PROVIDER=bedrock` — Claude Haiku 4.5 + Titan V2 in `src/lib/ai/` |

@@ -268,10 +268,10 @@ WITH q AS (
 vec_ann AS (
   SELECT
     m.id,
-    (1.0 / (1.0 + (m.embedding <-> q.q_emb))) AS score_vec
-  FROM memories@memories_user_embedding_vec_idx AS m, q
-  WHERE m.user_id = q.user_id
-  ORDER BY m.embedding <-> q.q_emb
+    (1.0 / (1.0 + (m.embedding <-> $2::VECTOR(1024)))) AS score_vec
+  FROM memories@memories_user_embedding_vec_idx AS m
+  WHERE m.user_id = $1::UUID
+  ORDER BY m.embedding <-> $2::VECTOR(1024)
   LIMIT 80
 ),
 vec AS (
@@ -324,7 +324,7 @@ SELECT
  + 0.10 * f.score_usage) AS hybrid_score
 FROM fused f
 ORDER BY hybrid_score DESC
-LIMIT (SELECT k FROM q);
+LIMIT $4::INT;
 */
 
 -- Runtime hit bookkeeping (call after returning top-K to the model):
