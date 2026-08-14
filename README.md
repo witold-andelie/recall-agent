@@ -1,6 +1,6 @@
 # Recall Agent
 
-A persistent-memory AI assistant. **CockroachDB** is the long-term memory layer (relational + vector + full-text in one Postgres-compatible database). **AWS** is the intended runtime (Bedrock now; Lambda / S3 later).
+A persistent-memory AI assistant. **CockroachDB Cloud** is the long-term memory layer (relational + vector + full-text in one Postgres-compatible database). **Amazon Bedrock** provides chat and embeddings. The app is a local Next.js process.
 
 UI chrome is English. Replies follow the **latest user message language** (default English; mid-thread switches are allowed). Memories are stored in the language the user used for that fact.
 
@@ -27,7 +27,7 @@ One CockroachDB cluster is the record system: ops rows, `VECTOR(1024)`, PostgreS
 | **CockroachDB** | Serverless / PG wire; distributed **vector index** with `user_id` prefix; GIN on `content_tsv` |
 | **Analytics views** | `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown`, `v_duplicate_clusters` |
 | **CRDB toolchain** | (1) distributed vector index (runtime) · (2) Managed Cloud MCP · (3) official Agent Skills repo |
-| **AWS** | Bedrock (live) · Lambda / S3 (optional later) |
+| **AWS** | Amazon Bedrock (chat + Titan Embed V2) |
 
 ### Memory lifecycle (the product loop)
 
@@ -70,8 +70,7 @@ Demo path: Claude Code + Managed Cloud MCP, `EXPLAIN` the hybrid ANN statement, 
 
 | Service | How it is used |
 |---|---|
-| Amazon Bedrock | Live path when `AI_PROVIDER=bedrock`. Chat: `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Embed: `amazon.titan-embed-text-v2:0` (1024-d, matches `VECTOR(1024)`). Code: [`recall-agent/src/lib/ai/`](./recall-agent/src/lib/ai/). |
-| Lambda / S3 | Optional later deploy. Not required for the memory demo. |
+| Amazon Bedrock | Live when `AI_PROVIDER=bedrock`. Chat: `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Embed: `amazon.titan-embed-text-v2:0` (1024-d). Code: [`recall-agent/src/lib/ai/`](./recall-agent/src/lib/ai/). |
 
 Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete → next turn changes. Then Claude Code + Cloud MCP: `EXPLAIN` the hybrid ANN and `SELECT * FROM v_memory_funnel`.
 
