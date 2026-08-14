@@ -1,13 +1,14 @@
 import { cookies } from "next/headers";
 import { createHash, randomBytes } from "crypto";
 import { query } from "@/lib/db/pool";
+import { sessionSecret } from "@/lib/env";
 
 const COOKIE = "recall_session";
 const DAYS = 30;
 
 function hashToken(token: string): Buffer {
   return createHash("sha256")
-    .update(`${process.env.SESSION_SECRET || "dev"}:${token}`)
+    .update(`${sessionSecret()}:${token}`)
     .digest();
 }
 

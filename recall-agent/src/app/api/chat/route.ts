@@ -7,6 +7,9 @@ import { extractMemories } from "@/lib/memory/extract";
 import { dedupeAndStore } from "@/lib/memory/dedupe";
 import { buildSystemPrompt } from "@/lib/prompt";
 import { detectReplyLocale } from "@/lib/language";
+import { chatRateLimitPerMinute } from "@/lib/env";
+import { logEvent, newRequestId } from "@/lib/log";
+import { takeToken } from "@/lib/ratelimit";
 import type { HybridHit, Message } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -23,8 +26,18 @@ type Body = {
  * Streams NDJSON lines: meta | token | done | error
  */
 export async function POST(req: Request) {
+  const requestId = newRequestId();
+  const started = Date.now();
   try {
     const userId = await requireUserId();
+    const limited = takeToken(`chat:${userId}`, chatRateLimitPerMinute());
+    if (!limited.ok) {
+      logEvent("chat.rate_limited", { requestId, userId });
+      return Response.json(
+        { error: "rate limited", retryAfterSec: limited.retryAfterSec },
+        { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } },
+      );
+    }
     const body = (await req.json()) as Body;
     const text = body.message?.trim();
     if (!text) {
@@ -62,14 +75,17 @@ export async function POST(req: Request) {
       threadId,
     ]);
 
-    // P2 + P3 hybrid retrieve
+    const tEmbed = Date.now();
     const queryEmb = await embedText(text);
+    const embedMs = Date.now() - tEmbed;
+    const tRetrieve = Date.now();
     const hits = await hybridRetrieve({
       userId,
       queryEmbedding: queryEmb,
       queryText: text,
       limit: 8,
     });
+    const retrieveMs = Date.now() - tRetrieve;
 
     await recordMemoryHits({
       userId,
@@ -111,6 +127,7 @@ export async function POST(req: Request) {
         try {
           send({
             type: "meta",
+            requestId,
             threadId,
             userMessageId: userMessage.id,
             locale,
@@ -135,6 +152,7 @@ export async function POST(req: Request) {
 
           // P6 → P7 → P8 (async path kept in-request for demo reliability)
           let writes: Awaited<ReturnType<typeof dedupeAndStore>> = [];
+          const tExtract = Date.now();
           try {
             const candidates = await extractMemories({
               userMessage: text,
@@ -158,19 +176,37 @@ export async function POST(req: Request) {
                   : "memory extract failed",
             });
           }
+          const extractMs = Date.now() - tExtract;
+          const timing = {
+            embedMs,
+            retrieveMs,
+            extractMs,
+            totalMs: Date.now() - started,
+          };
+          logEvent("chat.done", {
+            requestId,
+            userId,
+            threadId,
+            hits: hits.length,
+            add: writes.filter((w) => w.action === "ADD").length,
+            update: writes.filter((w) => w.action === "UPDATE").length,
+            skip: writes.filter((w) => w.action === "SKIP").length,
+            ...timing,
+          });
 
           send({
             type: "done",
+            requestId,
             assistantMessageId: assistantMessage.id,
             memoryWrites: writes,
             memoriesUsed: hits.map(publicHit),
+            timing,
           });
           controller.close();
         } catch (err) {
-          send({
-            type: "error",
-            message: err instanceof Error ? err.message : "chat failed",
-          });
+          const message = err instanceof Error ? err.message : "chat failed";
+          logEvent("chat.error", { requestId, userId, message });
+          send({ type: "error", requestId, message });
           controller.close();
         }
       },
@@ -184,7 +220,8 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "chat failed";
-    return Response.json({ error: message }, { status: 500 });
+    logEvent("chat.error", { requestId, message });
+    return Response.json({ error: message, requestId }, { status: 500 });
   }
 }
 

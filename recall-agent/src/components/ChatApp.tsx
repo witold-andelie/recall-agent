@@ -40,11 +40,36 @@ export function ChatApp() {
   const [locale, setLocale] = useState<{ tag: string; label: string } | null>(
     null,
   );
+  const [funnel, setFunnel] = useState<
+    Array<{
+      day: string;
+      messages: number;
+      extractions: number;
+      add_n: number;
+      update_n: number;
+      skip_n: number;
+    }>
+  >([]);
+  const [timing, setTiming] = useState<{
+    embedMs: number;
+    retrieveMs: number;
+    extractMs: number;
+    totalMs: number;
+  } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    void fetch("/api/auth", { method: "POST" });
+  const refreshFunnel = useCallback(() => {
+    void fetch("/api/ops/funnel")
+      .then((r) => r.json())
+      .then((j) => {
+        if (Array.isArray(j.days)) setFunnel(j.days);
+      })
+      .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    void fetch("/api/auth", { method: "POST" }).then(() => refreshFunnel());
+  }, [refreshFunnel]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -96,6 +121,12 @@ export function ChatApp() {
             memoryWrites?: Write[];
             message?: string;
             locale?: { tag: string; label: string };
+            timing?: {
+              embedMs: number;
+              retrieveMs: number;
+              extractMs: number;
+              totalMs: number;
+            };
           };
           try {
             evt = JSON.parse(line);
@@ -118,6 +149,8 @@ export function ChatApp() {
           } else if (evt.type === "done") {
             if (evt.memoryWrites) setWrites(evt.memoryWrites);
             if (evt.memories) setHits(evt.memories);
+            if (evt.timing) setTiming(evt.timing);
+            refreshFunnel();
           } else if (evt.type === "error") {
             throw new Error(evt.message || "stream error");
           } else if (evt.type === "warn") {
@@ -133,7 +166,7 @@ export function ChatApp() {
     } finally {
       setBusy(false);
     }
-  }, [busy, input, threadId]);
+  }, [busy, input, threadId, refreshFunnel]);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -220,6 +253,18 @@ export function ChatApp() {
               <span className="text-slate-300">
                 {locale.label} ({locale.tag})
               </span>
+            </p>
+          )}
+          {timing && (
+            <p className="font-mono text-[10px] text-slate-500">
+              embed {timing.embedMs}ms · retrieve {timing.retrieveMs}ms · write{" "}
+              {timing.extractMs}ms · total {timing.totalMs}ms
+            </p>
+          )}
+          {funnel[0] && (
+            <p className="text-[10px] text-slate-500">
+              Today: {funnel[0].messages} msgs · {funnel[0].add_n} ADD ·{" "}
+              {funnel[0].update_n} UPD · {funnel[0].skip_n} SKIP
             </p>
           )}
           <section>

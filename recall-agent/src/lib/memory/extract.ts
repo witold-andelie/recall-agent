@@ -1,8 +1,16 @@
+import { z } from "zod";
 import { completeJson } from "@/lib/ai/chat";
-import type { MemoryCandidate, MemoryKind } from "@/lib/types";
+import type { MemoryCandidate } from "@/lib/types";
 import type { ReplyLocale } from "@/lib/language";
 
-const KINDS: MemoryKind[] = ["preference", "fact", "task_state"];
+const Candidate = z.object({
+  kind: z.enum(["preference", "fact", "task_state"]).catch("fact"),
+  content: z.string().trim().min(1).max(500),
+  importance: z.number().min(0).max(1).optional(),
+});
+const ExtractPayload = z.object({
+  memories: z.array(Candidate).max(8).optional(),
+});
 
 /**
  * P6 — LLM proposes memory candidates. SQL (dedupe) decides ADD / UPDATE / SKIP.
@@ -33,23 +41,13 @@ Rules:
   ]);
 
   try {
-    const parsed = JSON.parse(stripCodeFence(raw)) as {
-      memories?: Array<{ kind?: string; content?: string; importance?: number }>;
-    };
-    const list = parsed.memories || [];
-    return list
-      .filter((m) => m.content && String(m.content).trim().length > 0)
-      .slice(0, 3)
-      .map((m) => ({
-        kind: (KINDS.includes(m.kind as MemoryKind)
-          ? m.kind
-          : "fact") as MemoryKind,
-        content: String(m.content).trim().slice(0, 500),
-        importance:
-          typeof m.importance === "number"
-            ? Math.min(1, Math.max(0, m.importance))
-            : 0.5,
-      }));
+    const parsed = ExtractPayload.safeParse(JSON.parse(stripCodeFence(raw)));
+    if (!parsed.success) return [];
+    return (parsed.data.memories || []).slice(0, 3).map((m) => ({
+      kind: m.kind,
+      content: m.content,
+      importance: m.importance ?? 0.5,
+    }));
   } catch {
     return [];
   }

@@ -55,6 +55,14 @@ Repo-root artifacts (parent of this app) are the judge checklist.
 | Agent Skills | Official `../vendor/cockroachdb-skills`. Overlay: `../skills/memory-analytics/` |
 | AWS Bedrock | `AI_PROVIDER=bedrock` — Claude Haiku 4.5 + Titan V2 in `src/lib/ai/` |
 
+## Operations
+
+- `GET /api/health` — database ping
+- `GET /api/ops/funnel` — tenant funnel from `v_memory_funnel`
+- Chat is rate-limited per user (`CHAT_RATE_LIMIT_PER_MIN`, default 20)
+- Optional least-privilege grants: `sql/app_grants.sql`
+- Optional ANN scale seed (local hash embed): `node scripts/seed-memories.mjs 200`
+
 ## Scripts
 
 - `npm run dev` — local

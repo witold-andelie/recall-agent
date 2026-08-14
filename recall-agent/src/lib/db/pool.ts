@@ -10,7 +10,8 @@ export function getPool(): Pool {
     globalForPg.recallPool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 10,
-      // CockroachDB / serverless often need SSL
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
       ssl:
         process.env.DATABASE_SSL === "false"
           ? undefined
