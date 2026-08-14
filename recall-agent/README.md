@@ -31,6 +31,7 @@ Open http://localhost:3000
 2. New message: “What do you know about my preferences?”
 3. Watch **Memory hits** (hybrid scores) and **New writes** (ADD/UPDATE/SKIP).
 4. `/memory` — search / delete; next chat turn reflects deletes.
+5. Mid-thread language switch: `用中文再说一遍我的偏好。`
 
 ## API
 
@@ -52,7 +53,7 @@ Repo-root artifacts (parent of this app) are the judge checklist.
 | Hybrid FTS | `content_tsv` + `ts_rank` fused with recency / hits in `hybrid.ts` |
 | ② Managed MCP | `../.mcp.json` + `../mcp_readonly_role.sql` (`recall_analyst` → `v_*` only) |
 | ③ ccloud CLI | `ccloud cluster list --output json` (ops/demo) |
-| ④ Agent Skills | `../skills/memory-analytics/` |
+| ④ Agent Skills | Official `../vendor/cockroachdb-skills` (mandatory for CRDB work). Overlay: `../skills/memory-analytics/` |
 | AWS Bedrock | `AI_PROVIDER=bedrock` — Claude Haiku 4.5 + Titan V2 in `src/lib/ai/` |
 
 ## Scripts

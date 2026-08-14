@@ -1,20 +1,24 @@
 import { completeJson } from "@/lib/ai/chat";
 import type { MemoryCandidate, MemoryKind } from "@/lib/types";
+import type { ReplyLocale } from "@/lib/language";
 
 const KINDS: MemoryKind[] = ["preference", "fact", "task_state"];
 
 /**
- * P6 — LLM proposes memory candidates only (English).
- * SQL (dedupe) decides ADD / UPDATE / SKIP.
+ * P6 — LLM proposes memory candidates. SQL (dedupe) decides ADD / UPDATE / SKIP.
+ * Content language follows the user's fact language (not forced English).
  */
 export async function extractMemories(opts: {
   userMessage: string;
   assistantMessage: string;
+  locale?: ReplyLocale;
 }): Promise<MemoryCandidate[]> {
-  const system = `You extract durable memories for an English-only AI agent.
+  const lang = opts.locale?.label ?? "the user's language";
+  const system = `You extract durable memories for an AI agent.
 Return JSON: {"memories":[{"kind":"preference"|"fact"|"task_state","content":"...","importance":0.0-1.0}]}
 Rules:
-- English only.
+- Write each memory in the same language the user used for that fact (this turn is ${lang}).
+- Do not translate into English unless the user wrote in English.
 - Only lasting preferences, facts about the user, or task state worth recalling later.
 - Skip chit-chat, one-off questions, and secrets/passwords.
 - Max 3 memories. Empty array is fine.

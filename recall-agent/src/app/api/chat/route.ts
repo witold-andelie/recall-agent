@@ -6,6 +6,7 @@ import { hybridRetrieve, recordMemoryHits } from "@/lib/memory/hybrid";
 import { extractMemories } from "@/lib/memory/extract";
 import { dedupeAndStore } from "@/lib/memory/dedupe";
 import { buildSystemPrompt } from "@/lib/prompt";
+import { detectReplyLocale } from "@/lib/language";
 import type { HybridHit, Message } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -88,9 +89,10 @@ export async function POST(req: Request) {
       [threadId, userId],
     );
     const chronological = history.reverse();
+    const locale = detectReplyLocale(text);
 
     const chatMessages: ChatMessage[] = [
-      { role: "system", content: buildSystemPrompt(hits) },
+      { role: "system", content: buildSystemPrompt(hits, locale) },
       ...chronological
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -111,6 +113,7 @@ export async function POST(req: Request) {
             type: "meta",
             threadId,
             userMessageId: userMessage.id,
+            locale,
             memories: hits.map(publicHit),
           });
 
@@ -136,6 +139,7 @@ export async function POST(req: Request) {
             const candidates = await extractMemories({
               userMessage: text,
               assistantMessage: assistantText,
+              locale,
             });
             if (candidates.length) {
               writes = await dedupeAndStore({

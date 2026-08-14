@@ -10,7 +10,7 @@
 
 **产品主链路 + AWS 合规项已通**：CockroachDB Cloud 持久记忆 + hybrid 检索 + 英文 Chat/Memory UI + **Amazon Bedrock（Claude Haiku 4.5 + Titan Embed V2）**。  
 浏览器已验证两轮对话出现 Memory hits / New writes。  
-**还没做**：CRDB 工具 ②③④ 演示、部署、提交物料。  
+**还没做**：托管 MCP 控制台点通、ccloud 演示、部署、提交物料。官方 Skills 仓库已强制接入。  
 **密钥策略：不轮换。** 只放在本文件夹本地文件里（`.env.local`），gitignore 挡住，不要推 GitHub。
 
 ---
@@ -26,7 +26,7 @@
 | ① | 分布式向量索引 | ✅ 已建 `CREATE VECTOR INDEX`，hybrid 用 `<->` |
 | ② | 托管 MCP Server | ✅ 仓库已有 `.mcp.json` + `mcp_readonly_role.sql`（`recall_analyst` 只能读 `v_*`）；控制台连上即可演示 |
 | ③ | ccloud CLI | ⬜ 未装、未演示（本机没有 `ccloud`） |
-| ④ | Agent Skills Repo | ✅ `skills/memory-analytics/SKILL.md` 已入库 |
+| ④ | Agent Skills Repo | ✅ 官方 `cockroachlabs/cockroachdb-skills` 已 submodule 到 `vendor/cockroachdb-skills`，`AGENTS.md` 强制先读；产品 overlay 仍是 `skills/memory-analytics/` |
 
 至少 **1 项** AWS 服务：
 
@@ -35,7 +35,7 @@
 | Amazon Bedrock | ✅ **已接通**（IAM 用户 + 真实 API + 浏览器记忆闭环） |
 | Lambda / S3 / 其他 | ⬜ 未部署（可选加分） |
 
-产品语言：**纯英文**（UI、prompt、记忆内容）。
+产品语言：UI 默认英文；**回复跟本轮用户语言**（同一对话可切换）。记忆按用户陈述语言落库。
 
 ---
 
@@ -126,7 +126,7 @@
 
 - **StepFun 已彻底移除**（代码与 env 无残留）
 - CRDB：`ln(int)` 不兼容 → hybrid 已改为 `hit_count::float8`
-- CRDB：向量索引加速 **L2 `<->`**，不是 cosine
+- CRDB：向量索引加速 **L2 `<->`**，不是 cosine。hybrid / dedupe 的 ANN 已改成只按 `user_id` + `<->`（索引 hint），`EXPLAIN` 会出现 `vector search`；`deleted_at` / `kind` 在过取后过滤
 - 新版 Bedrock：**没有 Model access 菜单**；模型默认可用，靠 **IAM + Playground/API**
 - 新账号上旧 Claude 3.x 常 EOL；优先 inference profile（`us.anthropic...`）或 Nova
 - 密钥 **不轮换**，只放本机：`D:\AI_Models\hackson\AWS\.env.local` 与 `recall-agent/.env.local`（后者给 Next.js 读）
@@ -147,7 +147,7 @@
 |------|------|
 | ③ ccloud CLI | 本机未装。安装 → `ccloud auth login` → `ccloud cluster list` / `get` 留 JSON 截图 |
 | ② Managed MCP | 角色 SQL 已写好。控制台建 `recall_analyst` 密码，把 MCP 指过去，跑 `SELECT * FROM v_memory_funnel` |
-| ④ Skills Repo | 已完成（`skills/memory-analytics/`） |
+| ④ Skills Repo | 官方仓库已强制接入（submodule + `AGENTS.md`） |
 
 ### P2 — AWS 部署（可选但加分）
 
@@ -220,6 +220,8 @@ npm run dev
 
 ```
 D:\AI_Models\hackson\AWS\
+├── AGENTS.md / CLAUDE.md    ← 强制：CRDB 工作先读官方 skills
+├── vendor/cockroachdb-skills ← 官方 Agent Skills 子模块（④）
 ├── PROGRESS.md              ← 本文件
 ├── README.md                ← 架构说明 + 评委对照表
 ├── .env.local               ← 本地密钥副本（gitignore，不上 GitHub）
@@ -252,6 +254,7 @@ D:\AI_Models\hackson\AWS\
 2. OpenCode 仅备用；对外叙事以 **Bedrock + CRDB** 为主。
 3. Paid plan 不会自动扣月租，但 Bedrock 按量计费；设 $1 告警。
 4. 关户会丢掉 IAM / Bedrock / 剩余抵扣金，黑客松期间不要关。
+5. 难爬网站用本机已装的 **Scrapling**（https://github.com/D4Vinci/Scrapling），不要另起一套爬虫。
 
 ---
 

@@ -8,7 +8,9 @@ const DELTA = 0.1;
 
 /**
  * P3 / P16 — hybrid retrieval in one SQL round-trip:
- * vector L2 (<->, CRDB vector-index accelerated) + ts_rank + recency + hit usage.
+ * ANN uses only the vector-index prefix (`user_id` + `<->`) so CRDB can
+ * plan `vector search` on memories_user_embedding_vec_idx. Soft-delete /
+ * null embedding are filtered after over-fetch.
  */
 export async function hybridRetrieve(opts: {
   userId: string;
@@ -28,16 +30,21 @@ export async function hybridRetrieve(opts: {
         plainto_tsquery('english', $3) AS q_ts,
         $4::int AS k
     ),
-    vec AS (
+    vec_ann AS (
       SELECT
         m.id,
-        (1.0 / (1.0 + (m.embedding <-> (SELECT q_emb FROM q)))) AS score_vec
-      FROM memories m, q
+        (1.0 / (1.0 + (m.embedding <-> q.q_emb))) AS score_vec
+      FROM memories@memories_user_embedding_vec_idx AS m, q
       WHERE m.user_id = q.user_id
-        AND m.deleted_at IS NULL
-        AND m.embedding IS NOT NULL
       ORDER BY m.embedding <-> q.q_emb
-      LIMIT 50
+      LIMIT 80
+    ),
+    vec AS (
+      SELECT a.id, a.score_vec
+      FROM vec_ann a
+      INNER JOIN memories m ON m.id = a.id
+      WHERE m.deleted_at IS NULL
+        AND m.embedding IS NOT NULL
     ),
     txt AS (
       SELECT

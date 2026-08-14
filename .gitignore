@@ -16,3 +16,6 @@
 secrets.env
 **/secrets.env
 *.pem
+
+# Junction/symlink to the official skills submodule (recreate locally)
+.claude/skills/cockroachdb-skills

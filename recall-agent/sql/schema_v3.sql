@@ -8,6 +8,10 @@
 -- Product language: English-only agent surface (UI, prompts, memory content).
 -- This file is schema + demo SQL for judges / implementation — not product copy.
 --
+-- CRDB SQL/schema work must follow official Agent Skills:
+--   vendor/cockroachdb-skills  (cockroachlabs/cockroachdb-skills)
+--   primary: cockroachdb-sql  (EXPLAIN every generated statement)
+--
 -- CRDB notes (as of vector index docs):
 --   * Enable: SET CLUSTER SETTING feature.vector_index.enabled = true;
 --   * Vector indexes accelerate L2 distance only: operator <->
@@ -261,16 +265,21 @@ WITH q AS (
     plainto_tsquery('english', $3) AS q_ts,
     $4::INT               AS k
 ),
-vec AS (
+vec_ann AS (
   SELECT
     m.id,
-    (1.0 / (1.0 + (m.embedding <-> (SELECT q_emb FROM q)))) AS score_vec
-  FROM memories m, q
+    (1.0 / (1.0 + (m.embedding <-> q.q_emb))) AS score_vec
+  FROM memories@memories_user_embedding_vec_idx AS m, q
   WHERE m.user_id = q.user_id
-    AND m.deleted_at IS NULL
-    AND m.embedding IS NOT NULL
   ORDER BY m.embedding <-> q.q_emb
-  LIMIT 50
+  LIMIT 80
+),
+vec AS (
+  SELECT a.id, a.score_vec
+  FROM vec_ann a
+  INNER JOIN memories m ON m.id = a.id
+  WHERE m.deleted_at IS NULL
+    AND m.embedding IS NOT NULL
 ),
 txt AS (
   SELECT
@@ -354,18 +363,22 @@ COMMIT;
 -- =============================================================================
 
 /*
--- Nearest existing memories for one candidate embedding (tenant-scoped)
-SELECT
-  m.id,
-  m.kind,
-  m.content,
-  (m.embedding <-> $2::VECTOR(1024)) AS l2_dist
-FROM memories m
-WHERE m.user_id = $1::UUID
-  AND m.deleted_at IS NULL
-  AND m.embedding IS NOT NULL
+-- Nearest existing memories (ANN on vector index, then filter kind / deleted)
+WITH ann AS (
+  SELECT
+    m.id,
+    (m.embedding <-> $2::VECTOR(1024)) AS l2_dist
+  FROM memories@memories_user_embedding_vec_idx AS m
+  WHERE m.user_id = $1::UUID
+  ORDER BY m.embedding <-> $2::VECTOR(1024)
+  LIMIT 20
+)
+SELECT a.id, m.kind, m.content, a.l2_dist
+FROM ann a
+INNER JOIN memories m ON m.id = a.id
+WHERE m.deleted_at IS NULL
   AND m.kind = $3::memory_kind
-ORDER BY m.embedding <-> $2::VECTOR(1024)
+ORDER BY a.l2_dist
 LIMIT 5;
 */
 
@@ -510,8 +523,8 @@ GROUP BY user_id, rel;
 -- EXPLAIN hybrid path (run via Managed MCP read-only or SQL shell)
 EXPLAIN
 SELECT id, content, (embedding <-> $q) AS l2
-FROM memories
-WHERE user_id = $uid AND deleted_at IS NULL AND embedding IS NOT NULL
+FROM memories@memories_user_embedding_vec_idx
+WHERE user_id = $uid
 ORDER BY embedding <-> $q
 LIMIT 8;
 

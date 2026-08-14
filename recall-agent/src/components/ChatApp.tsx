@@ -37,6 +37,9 @@ export function ChatApp() {
   const [hits, setHits] = useState<Hit[]>([]);
   const [writes, setWrites] = useState<Write[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [locale, setLocale] = useState<{ tag: string; label: string } | null>(
+    null,
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -92,6 +95,7 @@ export function ChatApp() {
             memories?: Hit[];
             memoryWrites?: Write[];
             message?: string;
+            locale?: { tag: string; label: string };
           };
           try {
             evt = JSON.parse(line);
@@ -102,6 +106,7 @@ export function ChatApp() {
           if (evt.type === "meta") {
             if (evt.threadId) setThreadId(evt.threadId);
             if (evt.memories) setHits(evt.memories);
+            if (evt.locale) setLocale(evt.locale);
           } else if (evt.type === "token" && evt.text) {
             setMessages((prev) =>
               prev.map((m) =>
@@ -150,6 +155,7 @@ export function ChatApp() {
                 <p className="mt-3 text-xs text-slate-500">
                   Try: &quot;I prefer concise answers and I use TypeScript at
                   work.&quot; Then ask: &quot;What do you know about me?&quot;
+                  Switch mid-thread: &quot;用中文再说一遍我的偏好。&quot;
                 </p>
               </div>
             )}
@@ -208,6 +214,14 @@ export function ChatApp() {
 
         {/* Memory panel */}
         <aside className="flex flex-col gap-4 bg-slate-950/40 p-4 text-sm">
+          {locale && (
+            <p className="text-[11px] text-slate-500">
+              This turn: reply in{" "}
+              <span className="text-slate-300">
+                {locale.label} ({locale.tag})
+              </span>
+            </p>
+          )}
           <section>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-teal-400">
               Memory hits (this turn)

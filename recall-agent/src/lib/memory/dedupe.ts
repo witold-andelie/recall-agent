@@ -31,15 +31,21 @@ export async function dedupeAndStore(opts: {
 
     const { rows: neighbors } = await query<{ id: string; l2_dist: number }>(
       `
-      SELECT
-        m.id,
-        (m.embedding <-> $2::vector)::float8 AS l2_dist
-      FROM memories m
-      WHERE m.user_id = $1::uuid
-        AND m.deleted_at IS NULL
-        AND m.embedding IS NOT NULL
+      WITH ann AS (
+        SELECT
+          m.id,
+          (m.embedding <-> $2::vector)::float8 AS l2_dist
+        FROM memories@memories_user_embedding_vec_idx AS m
+        WHERE m.user_id = $1::uuid
+        ORDER BY m.embedding <-> $2::vector
+        LIMIT 20
+      )
+      SELECT a.id, a.l2_dist
+      FROM ann a
+      INNER JOIN memories m ON m.id = a.id
+      WHERE m.deleted_at IS NULL
         AND m.kind = $3::memory_kind
-      ORDER BY m.embedding <-> $2::vector
+      ORDER BY a.l2_dist
       LIMIT 1
       `,
       [opts.userId, vec, cand.kind],

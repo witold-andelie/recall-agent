@@ -2,7 +2,7 @@
 
 A persistent-memory AI assistant. **CockroachDB** is the long-term memory layer (relational + vector + full-text in one Postgres-compatible database). **AWS** is the intended runtime (Bedrock now; Lambda / S3 later).
 
-The product surface is English-only: UI, prompts, and stored memories.
+UI chrome is English. Replies follow the **latest user message language** (default English; mid-thread switches are allowed). Memories are stored in the language the user used for that fact.
 
 App code lives in [`recall-agent/`](./recall-agent). Schema is [`schema_v3.sql`](./schema_v3.sql) (copy under `recall-agent/sql/`).
 
@@ -65,7 +65,7 @@ Demo path: Managed MCP or `ccloud` against the cluster, `EXPLAIN` the hybrid sta
 | ① Distributed vector index | `CREATE VECTOR INDEX memories_user_embedding_vec_idx (user_id, embedding)` in [`schema_v3.sql`](./schema_v3.sql). Runtime ANN is `ORDER BY embedding <-> $q` under `user_id` in [`hybrid.ts`](./recall-agent/src/lib/memory/hybrid.ts). |
 | ② Managed MCP server | Ops/demo only — not on the chat request path. [`.mcp.json`](./.mcp.json) wires a **read-only** Postgres MCP. [`mcp_readonly_role.sql`](./mcp_readonly_role.sql) creates `recall_analyst` with `SELECT` on the four `v_*` views only (no base tables, no embeddings, no message text). Point Cockroach Cloud MCP or `MCP_DATABASE_URL` at that user. |
 | ③ ccloud CLI | Cluster list / status JSON (`ccloud cluster list --output json`). Schema apply: `psql "$DATABASE_URL" -f schema_v3.sql` then `-f mcp_readonly_role.sql`. |
-| ④ Agent Skills repo | [`skills/memory-analytics/`](./skills/memory-analytics/) — how to read `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown`, `v_duplicate_clusters` (grain, filters, preview rules). |
+| ④ Agent Skills repo | **Required:** official [cockroachlabs/cockroachdb-skills](https://github.com/cockroachlabs/cockroachdb-skills) as submodule [`vendor/cockroachdb-skills/`](./vendor/cockroachdb-skills). Hybrid ANN was validated with skill `cockroachdb-sql` (`EXPLAIN` → `vector search`): [`docs/explain-hybrid-ann.md`](./docs/explain-hybrid-ann.md). Agents must load the official skills for any further CRDB work (`AGENTS.md`). Overlay: [`skills/memory-analytics/`](./skills/memory-analytics/). |
 
 **AWS (1+ required):**
 
@@ -78,9 +78,10 @@ Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete →
 
 ### Known limitations
 
-- CockroachDB vector indexes accelerate **L2 `<->`**, not cosine. Hybrid weights assume that operator.
+- CockroachDB vector indexes accelerate **L2 `<->`**, not cosine. Hybrid weights assume that operator. The ANN CTE is only `WHERE user_id = $1 ORDER BY embedding <-> $q` (plus an index hint) so the planner uses `vector search`; soft-delete and `kind` are applied after over-fetch.
 - `v_hybrid_score_breakdown.retrieval_hits` is **one row per memory hit**, not per chat turn. Funnel and reuse views are the right grain for “how many turns / how many memories.”
 - `v_memory_reuse.content_preview` is `left(content, 120)` — treat as an identifier, not text to quote.
+- Official CockroachDB skills are **dev-time**. Chat does not invoke them. After clone: `git submodule update --init --recursive`.
 - MCP is a read-only analytics channel. The agent request path uses the app’s `DATABASE_URL` user, never `recall_analyst`.
 - Older on-demand Claude 3.x model IDs are often EOL on new accounts. Prefer the `us.*` inference-profile ID or Amazon Nova. Probe with `recall-agent/scripts/probe-bedrock.mjs`.
 
@@ -109,6 +110,7 @@ Demo:
 2. `What do you know about my preferences?`
 3. Memory hits (hybrid scores) and New writes (ADD / UPDATE / SKIP) on the right.
 4. `/memory` — search or delete; the next turn reflects deletes.
+5. Switch mid-thread: `用中文再说一遍我的偏好。` — reply language follows this turn.
 
 ### API
 
