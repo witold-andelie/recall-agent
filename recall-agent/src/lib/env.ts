@@ -7,8 +7,3 @@ export function sessionSecret(): string {
   }
   return s || "dev";
 }
-
-export function chatRateLimitPerMinute(): number {
-  const n = Number(process.env.CHAT_RATE_LIMIT_PER_MIN || "20");
-  return Number.isFinite(n) && n > 0 ? n : 20;
-}

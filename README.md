@@ -82,7 +82,7 @@ Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete →
 - Official CockroachDB skills are **dev-time**. Chat does not invoke them. After clone: `git submodule update --init --recursive`.
 - Managed MCP is the official Cloud HTTP server. First connect needs OAuth in Claude Code (or Cursor). Chat still uses `DATABASE_URL` + `pg`, not MCP.
 - Older on-demand Claude 3.x model IDs are often EOL on new accounts. Prefer the `us.*` inference-profile ID or Amazon Nova. Probe with `recall-agent/scripts/probe-bedrock.mjs`.
-- Production hardening in this repo: per-user chat rate limit, structured JSON logs, `/api/health`, Zod on memory extract, pool timeouts, optional `sql/app_grants.sql`. The app is still a single Next.js process, not a multi-region deploy.
+- Operations in this repo: structured JSON logs, `/api/health`, Zod on memory extract, pool timeouts, optional `sql/app_grants.sql`. Scale is shown by memory/transaction volume in CockroachDB, not by throttling chat. The app is still a single Next.js process.
 
 ---
 

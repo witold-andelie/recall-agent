@@ -7,9 +7,7 @@ import { extractMemories } from "@/lib/memory/extract";
 import { dedupeAndStore } from "@/lib/memory/dedupe";
 import { buildSystemPrompt } from "@/lib/prompt";
 import { detectReplyLocale } from "@/lib/language";
-import { chatRateLimitPerMinute } from "@/lib/env";
 import { logEvent, newRequestId } from "@/lib/log";
-import { takeToken } from "@/lib/ratelimit";
 import type { HybridHit, Message } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -30,14 +28,6 @@ export async function POST(req: Request) {
   const started = Date.now();
   try {
     const userId = await requireUserId();
-    const limited = takeToken(`chat:${userId}`, chatRateLimitPerMinute());
-    if (!limited.ok) {
-      logEvent("chat.rate_limited", { requestId, userId });
-      return Response.json(
-        { error: "rate limited", retryAfterSec: limited.retryAfterSec },
-        { status: 429, headers: { "Retry-After": String(limited.retryAfterSec) } },
-      );
-    }
     const body = (await req.json()) as Body;
     const text = body.message?.trim();
     if (!text) {
