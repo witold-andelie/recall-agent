@@ -1,6 +1,6 @@
-# Render Blueprint — New → Blueprint, pick witold-andelie/recall-agent.
-# Fill DATABASE_URL and AWS keys before the first healthy deploy.
-# Google OAuth is optional; set APP_URL to the https://*.onrender.com URL after the first deploy.
+# Render Blueprint — live service: https://recall-agent.onrender.com/
+# New → Blueprint, pick witold-andelie/recall-agent.
+# Fill DATABASE_URL and AWS keys. APP_URL=https://recall-agent.onrender.com
 
 services:
   - type: web

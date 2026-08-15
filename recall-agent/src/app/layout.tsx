@@ -14,9 +14,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://recall-agent.onrender.com"),
   title: "Recall — Persistent Memory Agent",
   description:
-    "English-only AI agent with CockroachDB hybrid memory (vector + full-text) on AWS.",
+    "Persistent-memory AI agent. CockroachDB hybrid memory (vector + full-text) and Amazon Bedrock.",
 };
 
 export default function RootLayout({

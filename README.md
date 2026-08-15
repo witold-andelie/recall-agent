@@ -1,6 +1,8 @@
 # Recall Agent
 
-A persistent-memory AI assistant. **CockroachDB Cloud** is the long-term memory layer (relational + vector + full-text in one Postgres-compatible database). **Amazon Bedrock** provides chat and embeddings. The app is a local Next.js process.
+A persistent-memory AI assistant. **CockroachDB Cloud** is the long-term memory layer (relational + vector + full-text in one Postgres-compatible database). **Amazon Bedrock** provides chat and embeddings. The app is Next.js on [Render](https://recall-agent.onrender.com/).
+
+**Live demo:** [https://recall-agent.onrender.com/](https://recall-agent.onrender.com/)
 
 UI chrome is English. Replies follow the **latest user message language** (default English; mid-thread switches are allowed). Memories are stored in the language the user used for that fact.
 
@@ -75,7 +77,7 @@ Open-work loop: user names a job → extract `task_state` → every later turn *
 |---|---|
 | Amazon Bedrock | Live when `AI_PROVIDER=bedrock`. Chat: `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Embed: `amazon.titan-embed-text-v2:0` (1024-d). Code: [`recall-agent/src/lib/ai/`](./recall-agent/src/lib/ai/). |
 
-Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete → next turn changes. Then Claude Code + Cloud MCP: `EXPLAIN` the hybrid ANN and `SELECT * FROM v_memory_funnel`.
+Judge walkthrough: open [https://recall-agent.onrender.com/](https://recall-agent.onrender.com/) → chat two turns → Memory hits / ADD → `/memory` delete → next turn changes. Then Claude Code + Cloud MCP: `EXPLAIN` the hybrid ANN and `SELECT * FROM v_memory_funnel`. The first load after idle can take ~30s (Render free sleep).
 
 ### Known limitations
 
@@ -106,31 +108,34 @@ npm run dev
 
 ### Deploy on Render
 
-The GitHub repo already has [`render.yaml`](./render.yaml). In [Render Dashboard](https://dashboard.render.com/):
+**Live service:** [https://recall-agent.onrender.com/](https://recall-agent.onrender.com/)  
+`APP_URL` on that service is `https://recall-agent.onrender.com`. Health: `/api/health`. Ready (SQL): `/api/ready`.
+
+The GitHub repo has [`render.yaml`](./render.yaml). To recreate in [Render Dashboard](https://dashboard.render.com/):
 
 1. **New → Blueprint** and select `witold-andelie/recall-agent` (`main`).
 2. Set secrets (do not commit them):
    - `DATABASE_URL` — CockroachDB Cloud connection string (`sslmode=verify-full` is fine).
    - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — same keys you use locally for Bedrock.
    - `SESSION_SECRET` is generated if you use the Blueprint.
+   - `APP_URL` — `https://recall-agent.onrender.com`
 3. If the Cloud cluster has an IP allowlist, allow Render egress (or `0.0.0.0/0` for the demo).
-4. After the first deploy, copy the `https://….onrender.com` URL into `APP_URL`.
-5. Google login (optional): in Google Cloud, add  
-   `{APP_URL}/api/auth/google/callback`  
+4. Google login (optional): in Google Cloud, add  
+   `https://recall-agent.onrender.com/api/auth/google/callback`  
    as an authorized redirect, then set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
 Render health is `GET /api/health` (process only). After Live, open `GET /api/ready` — if `db` is false, the Cloud cluster is blocking Render (Networking → IP allowlist; for a public demo add `0.0.0.0/0` SQL).
 
 Free Render instances sleep after idle time; the first request after sleep can take ~30s.
 
-Open http://localhost:3000
+Local: http://localhost:3000 after `npm run dev`.
 
-Demo:
+Demo (on the live URL or locally):
 
 1. Register a username + password, or Continue with Google.
 2. `I prefer concise answers. I work in TypeScript on AWS.`
 3. `What do you know about my preferences?` — the model should call `search_memory` (right-hand Memory tools).
-4. Open work: `I am shipping Recall this week. Left: 3-minute video, GitHub About license, public demo URL.` Then `What is left?`
+4. Open work: `I am shipping Recall this week. Left: 3-minute video, GitHub About license.` Then `What is left?`
 5. `Everything is done — close that job.` — live `task_state` gets `valid_to`.
 6. `/memory` — search, lineage, entities, or delete; the next turn reflects deletes.
 7. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.

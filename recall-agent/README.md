@@ -1,6 +1,8 @@
 # Recall — Persistent Memory Agent
 
-Hackathon build: AI agent with **CockroachDB** as the system of record for memory (vector + PostgreSQL full-text hybrid SQL), on **AWS**. UI chrome is English; replies follow the latest user-message language.
+Hackathon build: AI agent with **CockroachDB** as the system of record for memory (vector + PostgreSQL full-text hybrid SQL), on **AWS** Bedrock. UI chrome is English; replies follow the latest user-message language.
+
+**Live demo:** [https://recall-agent.onrender.com/](https://recall-agent.onrender.com/)
 
 ## Stack
 
@@ -8,7 +10,7 @@ Hackathon build: AI agent with **CockroachDB** as the system of record for memor
 - CockroachDB (`pg` wire protocol) — see `sql/schema_v3.sql`
 - AI: `AI_PROVIDER=openai` (compatible gateway) or `bedrock`
 
-Google sign-in: create an OAuth 2.0 Web client in Google Cloud, set authorized redirect to `{APP_URL}/api/auth/google/callback`, then put `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `APP_URL` in `.env.local`.
+Google sign-in (production): authorized redirect is `https://recall-agent.onrender.com/api/auth/google/callback`. Locally, use `{APP_URL}/api/auth/google/callback` and put `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `APP_URL` in `.env.local`.
 
 ## Quick start
 
@@ -27,13 +29,13 @@ npm run dev
 
 Open http://localhost:3000
 
-Public deploy: repo-root [`render.yaml`](../render.yaml). In Render: **New → Blueprint** → this GitHub repo. Set `DATABASE_URL` and AWS keys. After you have `https://….onrender.com`, put it in `APP_URL` and (optional) Google OAuth redirect `{APP_URL}/api/auth/google/callback`.
+Public deploy is live at [https://recall-agent.onrender.com/](https://recall-agent.onrender.com/). Blueprint: repo-root [`render.yaml`](../render.yaml). `APP_URL=https://recall-agent.onrender.com`.
 
 ## Memory loop (demo script)
 
 1. “I prefer concise answers. I work in TypeScript on AWS.”
 2. New message: “What do you know about my preferences?”
-3. Open work: “I am shipping Recall this week. Left: 3-minute video, GitHub About license, public demo URL.”
+3. Open work: “I am shipping Recall this week. Left: 3-minute video, GitHub About license.”
 4. “What is left?” — **Open work** stays pinned.
 5. “Everything is done, close that job.” — live `task_state` gets `valid_to`.
 6. “What do you know about my preferences?” — model should call `search_memory`.
