@@ -15,6 +15,8 @@ All data comes through the `recall-analytics` MCP server (or Cockroach Cloud MCP
 | `v_memory_reuse` | `memory_usage_events`, `memory_extraction_log` |
 | `v_hybrid_score_breakdown` | `memory_links`, `users`, `auth_sessions` |
 | `v_duplicate_clusters` | embeddings, full message text |
+| `v_entity_clusters` | `entities` / `memory_entities` base tables |
+| `v_l2_calibration` | raw extraction_log rows |
 
 `v_memory_reuse.content_preview` is `left(content, 120)`. Treat it as an id for triage — do not quote or summarize user memories.
 
@@ -26,6 +28,8 @@ All data comes through the `recall-analytics` MCP server (or Cockroach Cloud MCP
 | `v_memory_reuse` | one row per **active** memory | Who gets hit; `never_used` / `low` / `medium` / `hot` |
 | `v_hybrid_score_breakdown` | `user_id` × day | Average vec / text / recency / usage / hybrid scores |
 | `v_duplicate_clusters` | `user_id` × `rel` | `supersedes` / `duplicates` / `derived_from` edge counts |
+| `v_entity_clusters` | `user_id` × entity | person/org/place names + memory_count (SQL graph, not Neo4j) |
+| `v_l2_calibration` | one row | SKIP/UPDATE/ADD L2 percentiles for Titan thresholding |
 
 Scoping: every view has `user_id` except you must still filter. Never present one user's row as platform-wide, and never sum `user_id` rows then call it “the product hit rate” without saying so.
 

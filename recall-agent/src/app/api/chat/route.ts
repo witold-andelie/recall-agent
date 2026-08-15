@@ -6,6 +6,7 @@ import { hybridRetrieve, recordMemoryHits } from "@/lib/memory/hybrid";
 import { listOpenTasks, mergeWorkingSet } from "@/lib/memory/working";
 import { extractMemories } from "@/lib/memory/extract";
 import { dedupeAndStore } from "@/lib/memory/dedupe";
+import { upsertAndLinkEntities } from "@/lib/memory/entities";
 import { buildSystemPrompt } from "@/lib/prompt";
 import { detectReplyLocale } from "@/lib/language";
 import { logEvent, newRequestId } from "@/lib/log";
@@ -167,18 +168,25 @@ export async function POST(req: Request) {
           let writes: Awaited<ReturnType<typeof dedupeAndStore>> = [];
           const tExtract = Date.now();
           try {
-            const candidates = await extractMemories({
+            const extracted = await extractMemories({
               userMessage: text,
               assistantMessage: assistantText,
               locale,
               openWork,
             });
-            if (candidates.length) {
+            if (extracted.memories.length) {
               writes = await dedupeAndStore({
                 userId,
                 threadId: threadId!,
                 sourceMessageId: assistantMessage.id,
-                candidates,
+                candidates: extracted.memories,
+                entities: extracted.entities,
+              });
+            } else if (extracted.entities.length) {
+              await upsertAndLinkEntities({
+                userId,
+                memoryIds: [],
+                mentions: extracted.entities,
               });
             }
           } catch (extractErr) {

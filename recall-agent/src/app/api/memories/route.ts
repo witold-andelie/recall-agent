@@ -4,7 +4,9 @@ import { requireUserId } from "@/lib/session/user";
 import { embedText } from "@/lib/ai/embed";
 import { hybridRetrieve } from "@/lib/memory/hybrid";
 import { attachLineage } from "@/lib/memory/lineage";
-import { L2_UPDATE, nearestLiveMemory } from "@/lib/memory/dedupe";
+import { attachEntities } from "@/lib/memory/entities";
+import { nearestLiveMemory } from "@/lib/memory/dedupe";
+import { getDedupeThresholds } from "@/lib/memory/thresholds";
 import type { Memory, MemoryKind } from "@/lib/types";
 
 const MEMORY_COLS = `
@@ -30,7 +32,10 @@ export async function GET(req: Request) {
         limit: 40,
       });
       return NextResponse.json({
-        memories: await attachLineage(userId, hits),
+        memories: await attachEntities(
+          userId,
+          await attachLineage(userId, hits),
+        ),
         mode: "hybrid",
       });
     }
@@ -56,7 +61,10 @@ export async function GET(req: Request) {
       params,
     );
     return NextResponse.json({
-      memories: await attachLineage(userId, rows),
+      memories: await attachEntities(
+        userId,
+        await attachLineage(userId, rows),
+      ),
       mode: "list",
     });
   } catch (e) {
@@ -98,7 +106,8 @@ export async function POST(req: Request) {
       kind,
       excludeId: created.id,
     });
-    if (nearest && nearest.l2_dist < L2_UPDATE) {
+    const { l2Update } = await getDedupeThresholds(userId);
+    if (nearest && nearest.l2_dist < l2Update) {
       await query(
         `
         INSERT INTO memory_links (user_id, from_id, to_id, rel, confidence)
@@ -109,7 +118,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const [withLineage] = await attachLineage(userId, [created]);
+    const [withLineage] = await attachEntities(
+      userId,
+      await attachLineage(userId, [created]),
+    );
     return NextResponse.json({ memory: withLineage });
   } catch (e) {
     const message = e instanceof Error ? e.message : "create memory failed";

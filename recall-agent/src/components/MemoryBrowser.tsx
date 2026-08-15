@@ -25,6 +25,7 @@ type MemoryRow = {
   valid_to?: string | null;
   lineage?: LineageLink[];
   skip_count?: number;
+  entities?: Array<{ id: string; kind: string; name: string }>;
 };
 
 export function MemoryBrowser() {
@@ -37,6 +38,9 @@ export function MemoryBrowser() {
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState("fact");
   const [history, setHistory] = useState(false);
+  const [clusters, setClusters] = useState<
+    Array<{ kind: string; name: string; memory_count: number }>
+  >([]);
 
   const load = useCallback(async (query?: string) => {
     const url = query?.trim()
@@ -74,6 +78,13 @@ export function MemoryBrowser() {
         setError(e instanceof Error ? e.message : "load failed");
         setLoading(false);
       });
+    fetch("/api/entities")
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (Array.isArray(data.entities)) setClusters(data.entities);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
@@ -206,6 +217,22 @@ export function MemoryBrowser() {
           </div>
         )}
 
+        {clusters.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-1.5">
+            {clusters.map((c) => (
+              <span
+                key={`${c.kind}:${c.name}`}
+                className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300"
+              >
+                {c.kind}:{c.name}
+                <span className="ml-1 font-mono text-slate-500">
+                  {c.memory_count}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="mb-2 text-xs text-slate-500">
           {loading ? "Loading…" : `${rows.length} memories · mode=${mode}`}
         </div>
@@ -241,6 +268,18 @@ export function MemoryBrowser() {
                   )}
                 </div>
                 <p className="text-sm text-slate-100">{m.content}</p>
+                {!!m.entities?.length && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {m.entities.map((e) => (
+                      <span
+                        key={e.id}
+                        className="rounded bg-indigo-950/70 px-1.5 py-0.5 text-[10px] text-indigo-200"
+                      >
+                        {e.kind}:{e.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <LineageList row={m} />
               </div>
               <button

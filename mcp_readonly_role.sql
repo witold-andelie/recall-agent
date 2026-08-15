@@ -22,6 +22,8 @@ GRANT SELECT ON v_memory_funnel TO recall_analyst;
 GRANT SELECT ON v_memory_reuse TO recall_analyst;
 GRANT SELECT ON v_hybrid_score_breakdown TO recall_analyst;
 GRANT SELECT ON v_duplicate_clusters TO recall_analyst;
+GRANT SELECT ON v_entity_clusters TO recall_analyst;
+GRANT SELECT ON v_l2_calibration TO recall_analyst;
 
 -- Intentional deny (default: no privilege). Do not GRANT these:
 --   memories / messages / threads / memory_usage_events / memory_extraction_log

@@ -15,12 +15,16 @@ GRANT SELECT, INSERT, UPDATE ON
   memories,
   memory_links,
   memory_usage_events,
-  memory_extraction_log
+  memory_extraction_log,
+  entities,
+  memory_entities
 TO recall_app;
 
 GRANT SELECT ON
   v_memory_funnel,
   v_memory_reuse,
   v_hybrid_score_breakdown,
-  v_duplicate_clusters
+  v_duplicate_clusters,
+  v_entity_clusters,
+  v_l2_calibration
 TO recall_app;

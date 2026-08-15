@@ -127,9 +127,9 @@ CREATE TABLE memories (
   user_id             UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
 
   kind                memory_kind NOT NULL,
-  content             STRING NOT NULL,          -- English text (product surface)
-  -- Stored computed FTS document (english). Must name config for CRDB.
-  content_tsv         TSVECTOR AS (to_tsvector('english', content)) STORED,
+  content             STRING NOT NULL,
+  -- Language-agnostic FTS (simple). Must name config for CRDB computed columns.
+  content_tsv         TSVECTOR AS (to_tsvector('simple', content)) STORED,
 
   -- Bedrock Titan / gateway embedding; 1024-d matches infra_v3 EmbedModel
   embedding           VECTOR(1024),
@@ -170,6 +170,12 @@ CREATE INDEX memories_source_message_idx
 CREATE INDEX memories_content_tsv_gin
   ON memories USING GIN (content_tsv);
 
+-- Tenant prefix + stored tsvector so hybrid FTS does not fall back to a recency scan
+CREATE INDEX memories_user_current_tsv_idx
+  ON memories (user_id)
+  STORING (content_tsv)
+  WHERE deleted_at IS NULL AND valid_to IS NULL;
+
 -- Distributed vector index with user_id prefix — SD0 VectorIndex / CRDB tool ①
 -- Only L2 (<->) is index-accelerated; hybrid SQL below uses the same operator.
 CREATE VECTOR INDEX memories_user_embedding_vec_idx
@@ -197,6 +203,47 @@ CREATE INDEX memory_links_user_rel_idx
 
 CREATE INDEX memory_links_to_id_idx
   ON memory_links (to_id);
+
+-- ---------------------------------------------------------------------------
+-- Named entities (person / org / place) — graph via SQL CTE, not Neo4j
+-- ---------------------------------------------------------------------------
+
+CREATE TYPE entity_kind AS ENUM (
+  'person',
+  'org',
+  'place',
+  'other'
+);
+
+CREATE TABLE entities (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  kind          entity_kind NOT NULL,
+  name          STRING NOT NULL,
+  name_norm     STRING NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, kind, name_norm)
+);
+
+CREATE INDEX entities_user_kind_idx
+  ON entities (user_id, kind, updated_at DESC);
+
+CREATE TABLE memory_entities (
+  user_id       UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  memory_id     UUID NOT NULL REFERENCES memories (id) ON DELETE CASCADE,
+  entity_id     UUID NOT NULL REFERENCES entities (id) ON DELETE CASCADE,
+  confidence    FLOAT8 NOT NULL DEFAULT 1.0
+                  CHECK (confidence >= 0 AND confidence <= 1),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (memory_id, entity_id)
+);
+
+CREATE INDEX memory_entities_entity_idx
+  ON memory_entities (entity_id);
+
+CREATE INDEX memory_entities_user_idx
+  ON memory_entities (user_id, entity_id);
 
 -- ---------------------------------------------------------------------------
 -- Retrieval analytics events (SD0 MemoryUsageEvent) — P3 side effect
@@ -273,7 +320,7 @@ WITH q AS (
   SELECT
     $1::UUID              AS user_id,
     $2::VECTOR(1024)      AS q_emb,
-    plainto_tsquery('english', $3) AS q_ts,
+    plainto_tsquery('simple', $3) AS q_ts,
     $4::INT               AS k
 ),
 vec_ann AS (
@@ -530,6 +577,33 @@ SELECT
   avg(confidence)         AS avg_confidence
 FROM memory_links
 GROUP BY user_id, rel;
+
+-- Entity clusters (SQL graph, not Neo4j)
+CREATE OR REPLACE VIEW v_entity_clusters AS
+SELECT
+  e.user_id,
+  e.kind,
+  e.name,
+  count(me.memory_id) AS memory_count,
+  max(me.created_at) AS last_linked_at
+FROM entities e
+LEFT JOIN memory_entities me ON me.entity_id = e.id
+GROUP BY e.user_id, e.id, e.kind, e.name;
+
+-- Titan L2 calibration from labeled extract log (no user text)
+CREATE OR REPLACE VIEW v_l2_calibration AS
+SELECT
+  count(*) FILTER (WHERE action = 'SKIP') AS skip_n,
+  count(*) FILTER (WHERE action = 'UPDATE') AS update_n,
+  count(*) FILTER (WHERE action = 'ADD') AS add_n,
+  percentile_disc(0.80) WITHIN GROUP (ORDER BY sim_l2)
+    FILTER (WHERE action = 'SKIP') AS skip_p80,
+  percentile_disc(0.50) WITHIN GROUP (ORDER BY sim_l2)
+    FILTER (WHERE action = 'UPDATE') AS update_p50,
+  percentile_disc(0.20) WITHIN GROUP (ORDER BY sim_l2)
+    FILTER (WHERE action = 'ADD') AS add_p20
+FROM memory_extraction_log
+WHERE sim_l2 IS NOT NULL AND sim_l2 >= 0;
 
 -- =============================================================================
 -- Optional: judge / MCP demo snippets

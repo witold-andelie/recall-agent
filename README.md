@@ -48,9 +48,9 @@ Conversation control is the same tenant rule: start as Guest, register to claim 
 
 ### SQL surface (what judges can EXPLAIN)
 
-**Hybrid retrieve** — two candidate sets (ANN L2 top-50, FTS `ts_rank` top-50) fused with recency `exp(-age_days/14)` and `ln(1+hits)` usage, weighted 0.55 / 0.25 / 0.10 / 0.10.
+**Hybrid retrieve** — two candidate sets (ANN L2 top-80, FTS `simple` `ts_rank` top-50) fused with recency `exp(-age_days/14)` and `ln(1+hits)` usage, then an **entity CTE** hops through shared person/org/place names. Weights 0.55 / 0.25 / 0.10 / 0.10 plus a small entity bonus.
 
-**Dedupe** — `ORDER BY embedding <-> $candidate` under `user_id` + `kind`; threshold → ADD / UPDATE / SKIP, then `memory_extraction_log`.
+**Dedupe** — `ORDER BY embedding <-> $candidate` under `user_id` + `kind`; L2 cutoffs come from `v_l2_calibration` (Titan labeled log) when there are enough rows, else 0.35 / 0.7.
 
 **Analytics** — daily funnel (messages → extractions → ADD/UPDATE/SKIP), reuse buckets, score-component averages.
 

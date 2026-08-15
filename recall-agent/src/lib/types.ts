@@ -27,6 +27,7 @@ export type Memory = {
   valid_to?: string | null;
   lineage?: MemoryLineageLink[];
   skip_count?: number;
+  entities?: MemoryEntity[];
 };
 
 export type HybridHit = Memory & {
@@ -34,6 +35,7 @@ export type HybridHit = Memory & {
   score_txt: number;
   score_recency: number;
   score_usage: number;
+  score_entity?: number;
   hybrid_score: number;
 };
 
@@ -58,6 +60,19 @@ export type MemoryCandidate = {
   kind: MemoryKind;
   content: string;
   importance?: number;
+};
+
+export type EntityKind = "person" | "org" | "place" | "other";
+
+export type EntityMention = {
+  kind: EntityKind;
+  name: string;
+};
+
+export type MemoryEntity = {
+  id: string;
+  kind: EntityKind;
+  name: string;
 };
 
 export type SessionUser = {

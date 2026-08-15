@@ -27,7 +27,7 @@ export async function hybridRetrieve(opts: {
       SELECT
         $1::uuid AS user_id,
         $2::vector AS q_emb,
-        plainto_tsquery('english', $3) AS q_ts,
+        plainto_tsquery('simple', $3) AS q_ts,
         $4::int AS k
     ),
     vec_ann AS (
@@ -87,16 +87,63 @@ export async function hybridRetrieve(opts: {
         AND m.deleted_at IS NULL
         AND m.valid_to IS NULL
         AND (v.id IS NOT NULL OR t.id IS NOT NULL)
+    ),
+    ent_seed AS (
+      SELECT DISTINCT me.entity_id
+      FROM memory_entities me
+      INNER JOIN fused f ON f.id = me.memory_id
+      WHERE me.user_id = $1::uuid
+    ),
+    ent_extra AS (
+      SELECT
+        m.id,
+        m.user_id,
+        m.kind,
+        m.content,
+        m.importance,
+        m.hit_count,
+        m.last_used_at,
+        m.created_at,
+        m.updated_at,
+        m.source_message_id,
+        m.source_thread_id,
+        m.valid_to,
+        COALESCE(v.score_vec, 0.0)::float8 AS score_vec,
+        COALESCE(t.score_txt, 0.0)::float8 AS score_txt,
+        exp(
+          -EXTRACT(EPOCH FROM (now() - COALESCE(m.last_used_at, m.created_at)))
+          / 86400.0 / 14.0
+        )::float8 AS score_recency,
+        (ln(1.0 + m.hit_count::float8) / ln(51.0))::float8 AS score_usage,
+        0.22::float8 AS score_entity
+      FROM memory_entities me
+      INNER JOIN ent_seed s ON s.entity_id = me.entity_id
+      INNER JOIN memories m ON m.id = me.memory_id
+      LEFT JOIN vec v ON v.id = m.id
+      LEFT JOIN txt t ON t.id = m.id
+      WHERE m.user_id = $1::uuid
+        AND m.deleted_at IS NULL
+        AND m.valid_to IS NULL
+        AND NOT EXISTS (SELECT 1 FROM fused f WHERE f.id = m.id)
+    ),
+    scored AS (
+      SELECT
+        f.*,
+        0.0::float8 AS score_entity
+      FROM fused f
+      UNION ALL
+      SELECT e.* FROM ent_extra e
     )
     SELECT
-      f.*,
+      s.*,
       (
-        ${ALPHA} * f.score_vec
-        + ${BETA} * f.score_txt
-        + ${GAMMA} * f.score_recency
-        + ${DELTA} * f.score_usage
+        ${ALPHA} * s.score_vec
+        + ${BETA} * s.score_txt
+        + ${GAMMA} * s.score_recency
+        + ${DELTA} * s.score_usage
+        + 0.12 * s.score_entity
       )::float8 AS hybrid_score
-    FROM fused f
+    FROM scored s
     ORDER BY hybrid_score DESC
     LIMIT $4::int
     `,
@@ -158,7 +205,7 @@ export function formatMemoriesForPrompt(hits: HybridHit[]): string {
   return hits
     .map(
       (h, i) =>
-        `${i + 1}. [${h.kind}] (score=${h.hybrid_score.toFixed(3)}) ${h.content}`,
+        `${i + 1}. [${h.kind}${h.score_entity ? "+entity" : ""}] (score=${h.hybrid_score.toFixed(3)}) ${h.content}`,
     )
     .join("\n");
 }

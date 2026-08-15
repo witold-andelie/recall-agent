@@ -1,10 +1,16 @@
 import { embedText } from "@/lib/ai/embed";
 import { query, toVectorLiteral, withTransaction } from "@/lib/db/pool";
-import type { DedupeAction, MemoryCandidate } from "@/lib/types";
+import type { DedupeAction, EntityMention, MemoryCandidate } from "@/lib/types";
+import { upsertAndLinkEntities } from "@/lib/memory/entities";
+import {
+  DEFAULT_L2_SKIP,
+  DEFAULT_L2_UPDATE,
+  getDedupeThresholds,
+} from "@/lib/memory/thresholds";
 
-/** L2 distance thresholds — calibrate per embedding model. */
-export const L2_SKIP = 0.35;
-export const L2_UPDATE = 0.7;
+/** Fallback constants when extraction_log has too few labeled L2 rows. */
+export const L2_SKIP = DEFAULT_L2_SKIP;
+export const L2_UPDATE = DEFAULT_L2_UPDATE;
 
 export type DedupeResult = {
   action: DedupeAction;
@@ -56,8 +62,10 @@ export async function dedupeAndStore(opts: {
   threadId: string;
   sourceMessageId: string;
   candidates: MemoryCandidate[];
+  entities?: EntityMention[];
 }): Promise<DedupeResult[]> {
   const results: DedupeResult[] = [];
+  const thresholds = await getDedupeThresholds(opts.userId);
 
   for (const cand of opts.candidates) {
     const embedding = await embedText(cand.content);
@@ -70,8 +78,8 @@ export async function dedupeAndStore(opts: {
     const l2 = nearest?.l2_dist ?? null;
 
     let action: DedupeAction = "ADD";
-    if (l2 !== null && l2 < L2_SKIP) action = "SKIP";
-    else if (l2 !== null && l2 < L2_UPDATE) action = "UPDATE";
+    if (l2 !== null && l2 < thresholds.l2Skip) action = "SKIP";
+    else if (l2 !== null && l2 < thresholds.l2Update) action = "UPDATE";
 
     let supersededId: string | null = null;
     const memoryId = await withTransaction(async (client) => {
@@ -197,6 +205,17 @@ export async function dedupeAndStore(opts: {
       content: cand.content,
       kind: cand.kind,
       supersededId,
+    });
+  }
+
+  const memoryIds = results
+    .map((r) => r.memoryId)
+    .filter((id): id is string => Boolean(id));
+  if (opts.entities?.length) {
+    await upsertAndLinkEntities({
+      userId: opts.userId,
+      memoryIds,
+      mentions: opts.entities,
     });
   }
 

@@ -46,6 +46,7 @@ Open http://localhost:3000
 | `GET/POST /api/threads` | Threads |
 | `POST /api/chat` | NDJSON stream: retrieve → reply → extract → store |
 | `GET/POST/DELETE /api/memories` | Memory browser + hybrid `?q=` + lineage. `?history=1` includes expired versions |
+| `GET /api/entities` | Tenant entity clusters (`v_entity_clusters`) |
 
 ## Hackathon mapping
 
@@ -55,7 +56,7 @@ Repo-root artifacts (parent of this app) are the judge checklist.
 |-------------|----------------|
 | CRDB persistent memory | `memories` + write path in `src/lib/memory/dedupe.ts` |
 | ① Vector index | `CREATE VECTOR INDEX (user_id, embedding)` in `sql/schema_v3.sql`; `<->` in `src/lib/memory/hybrid.ts` |
-| Hybrid FTS | `content_tsv` + `ts_rank` fused with recency / hits in `hybrid.ts` |
+| Hybrid FTS | `to_tsvector('simple')` + entity CTE in `hybrid.ts` |
 | Managed MCP | Official `https://cockroachlabs.cloud/mcp` — see `../docs/managed-mcp.md` |
 | Agent Skills | Official `../vendor/cockroachdb-skills`. Overlay: `../skills/memory-analytics/` |
 | AWS Bedrock | `AI_PROVIDER=bedrock` — Claude Haiku 4.5 + Titan V2 in `src/lib/ai/` |
