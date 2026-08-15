@@ -2,7 +2,8 @@
 # From repo root:
 #   docker compose up --build
 # Open http://localhost:3000
-# Health of one node: docker compose exec app-a wget -qO- http://127.0.0.1:3000/api/health
+# Liveness: docker compose exec app-a wget -qO- http://127.0.0.1:3000/api/health
+# Ready (SQL): docker compose exec app-a wget -qO- http://127.0.0.1:3000/api/ready
 
 services:
   app-a: &app

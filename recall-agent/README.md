@@ -55,7 +55,8 @@ Public deploy: repo-root [`render.yaml`](../render.yaml). In Render: **New → B
 | `POST /api/chat` | NDJSON stream: retrieve → reply → extract → store |
 | `GET/POST/DELETE /api/memories` | Memory browser + hybrid `?q=` + lineage. `?history=1` includes expired versions |
 | `GET /api/entities` | Tenant entity clusters (`v_entity_clusters`) |
-| `GET /api/health` | DB ping, schema, instance, pool, chat gate |
+| `GET /api/health` | Process liveness (no SQL) |
+| `GET /api/ready` | DB ping, schema, instance, pool, chat gate |
 | `GET /api/ops/funnel` | This tenant's `v_memory_funnel` |
 
 ## Hackathon mapping
@@ -73,7 +74,8 @@ Repo-root artifacts (parent of this app) are the judge checklist.
 
 ## Operations
 
-- `GET /api/health` — database ping plus `instance`, schema, pg pool, and in-flight chat counts
+- `GET /api/health` — process liveness (`ok`, `instance`, in-flight chat). No SQL.
+- `GET /api/ready` — Cockroach ping plus schema, pg pool, and in-flight chat counts
 - `npm test` — password, locale, entity, L2 calibration, tool-result formatting
 - `npm run db:check` — tables, views, ANN `vector search` plan
 - `npm run db:grants` — `CREATE USER recall_app` + `sql/app_grants.sql` (does not rotate `DATABASE_URL`)

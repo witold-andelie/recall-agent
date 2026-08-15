@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node scripts/render-start.mjs",
+    "start:render": "node scripts/render-start.mjs",
     "start:next": "next start",
     "start:cluster": "node scripts/multi-instance.mjs",
     "lint": "eslint",

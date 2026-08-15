@@ -85,7 +85,7 @@ Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete →
 - Official CockroachDB skills are **dev-time**. Chat does not invoke them. After clone: `git submodule update --init --recursive`.
 - Managed MCP is the official Cloud HTTP server. First connect needs OAuth in Claude Code (or Cursor). Chat still uses `DATABASE_URL` + `pg`, not MCP.
 - Older on-demand Claude 3.x model IDs are often EOL on new accounts. Prefer the `us.*` inference-profile ID or Amazon Nova. Probe with `recall-agent/scripts/probe-bedrock.mjs`.
-- Operations in this repo: structured JSON logs, `/api/health` (instance + pool + in-flight chat), `npm test`, `npm run db:check`, Zod on memory extract, configurable `DATABASE_POOL_MAX`, per-process `CHAT_MAX_INFLIGHT` gate, `recall_app` grants. Scale is CRDB row/transaction volume plus multiple Next.js processes (`npm run start:cluster` or repo-root `docker compose up`). Not Lambda/S3. Bedrock IAM stays `AmazonBedrockFullAccess` on purpose. No email sending.
+- Operations in this repo: structured JSON logs, `/api/health` (process liveness), `/api/ready` (Cockroach + pool + chat gate), `npm test`, `npm run db:check`, Zod on memory extract, configurable `DATABASE_POOL_MAX`, per-process `CHAT_MAX_INFLIGHT` gate, `recall_app` grants. Scale is CRDB row/transaction volume plus multiple Next.js processes (`npm run start:cluster` or repo-root `docker compose up`). Not Lambda/S3. Bedrock IAM stays `AmazonBedrockFullAccess` on purpose. No email sending.
 
 ---
 
@@ -119,7 +119,7 @@ The GitHub repo already has [`render.yaml`](./render.yaml). In [Render Dashboard
    `{APP_URL}/api/auth/google/callback`  
    as an authorized redirect, then set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
-Health check is `GET /api/health` (needs a working `DATABASE_URL` or the deploy stays unhealthy).
+Render health is `GET /api/health` (process only). After Live, open `GET /api/ready` — if `db` is false, the Cloud cluster is blocking Render (Networking → IP allowlist; for a public demo add `0.0.0.0/0` SQL).
 
 Free Render instances sleep after idle time; the first request after sleep can take ~30s.
 
@@ -150,7 +150,8 @@ Demo:
 | `POST /api/chat` | NDJSON: pin open work → memory tools → stream → extract |
 | `GET` / `POST` / `DELETE /api/memories` | Browser + hybrid `?q=` + lineage. `?history=1` includes expired versions |
 | `GET /api/entities` | Tenant entity clusters |
-| `GET /api/health` | Process + CockroachDB + pool + chat gate |
+| `GET /api/health` | Process liveness (Render uses this; no SQL) |
+| `GET /api/ready` | CockroachDB + schema + pool + chat gate |
 | `GET /api/ops/funnel` | This tenant's `v_memory_funnel` (last 7 days) |
 
 More app notes: [`recall-agent/README.md`](./recall-agent/README.md).

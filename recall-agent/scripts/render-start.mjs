@@ -27,10 +27,20 @@ if (existsSync("public")) {
   cpSync("public", path.join(standalone, "public"), { recursive: true });
 }
 
+// Render sets HOSTNAME to the container name. Next standalone binds to that
+// value; force 0.0.0.0 so the platform health probe can reach PORT.
 const child = spawn(process.execPath, ["server.js"], {
   cwd: standalone,
   stdio: "inherit",
-  env: process.env,
+  env: {
+    ...process.env,
+    HOSTNAME: "0.0.0.0",
+    INSTANCE_ID:
+      process.env.INSTANCE_ID ||
+      process.env.RENDER_INSTANCE_ID ||
+      process.env.HOSTNAME ||
+      `pid-${process.pid}`,
+  },
 });
 child.on("exit", (code, signal) => {
   if (signal) process.kill(process.pid, signal);

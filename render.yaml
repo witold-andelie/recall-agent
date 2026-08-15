@@ -10,12 +10,15 @@ services:
     rootDir: recall-agent
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start:render
+    # Process liveness only. DB is GET /api/ready — do not point this at /api/ready.
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: NODE_VERSION
         value: "22"
+      - key: HOSTNAME
+        value: "0.0.0.0"
       - key: AI_PROVIDER
         value: bedrock
       - key: AWS_REGION
