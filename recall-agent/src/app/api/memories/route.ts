@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db/pool";
+import { query, toVectorLiteral } from "@/lib/db/pool";
 import { requireUserId } from "@/lib/session/user";
 import { embedText } from "@/lib/ai/embed";
 import { hybridRetrieve } from "@/lib/memory/hybrid";
-import { toVectorLiteral } from "@/lib/db/pool";
+import { attachLineage } from "@/lib/memory/lineage";
+import { L2_UPDATE, nearestLiveMemory } from "@/lib/memory/dedupe";
 import type { Memory, MemoryKind } from "@/lib/types";
+
+const MEMORY_COLS = `
+  id, user_id, kind, content, importance, hit_count,
+  last_used_at, created_at, updated_at,
+  source_message_id, source_thread_id, valid_to
+`;
 
 export async function GET(req: Request) {
   try {
@@ -12,6 +19,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const q = url.searchParams.get("q")?.trim() || "";
     const kind = url.searchParams.get("kind") as MemoryKind | null;
+    const history = url.searchParams.get("history") === "1";
 
     if (q) {
       const emb = await embedText(q);
@@ -21,7 +29,10 @@ export async function GET(req: Request) {
         queryText: q,
         limit: 40,
       });
-      return NextResponse.json({ memories: hits, mode: "hybrid" });
+      return NextResponse.json({
+        memories: await attachLineage(userId, hits),
+        mode: "hybrid",
+      });
     }
 
     const params: unknown[] = [userId];
@@ -30,22 +41,24 @@ export async function GET(req: Request) {
       params.push(kind);
       kindClause = `AND kind = $2::memory_kind`;
     }
+    const currentClause = history ? "" : "AND valid_to IS NULL";
 
     const { rows } = await query<Memory>(
       `
-      SELECT
-        id, user_id, kind, content, importance, hit_count,
-        last_used_at, created_at, updated_at,
-        source_message_id, source_thread_id
+      SELECT ${MEMORY_COLS}
       FROM memories
       WHERE user_id = $1 AND deleted_at IS NULL
+      ${currentClause}
       ${kindClause}
       ORDER BY updated_at DESC
       LIMIT 100
       `,
       params,
     );
-    return NextResponse.json({ memories: rows, mode: "list" });
+    return NextResponse.json({
+      memories: await attachLineage(userId, rows),
+      mode: "list",
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "list memories failed";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -73,14 +86,31 @@ export async function POST(req: Request) {
       `
       INSERT INTO memories (user_id, kind, content, embedding, importance)
       VALUES ($1, $2::memory_kind, $3, $4::vector, $5)
-      RETURNING
-        id, user_id, kind, content, importance, hit_count,
-        last_used_at, created_at, updated_at,
-        source_message_id, source_thread_id
+      RETURNING ${MEMORY_COLS}
       `,
       [userId, kind, content, vec, importance],
     );
-    return NextResponse.json({ memory: rows[0] });
+    const created = rows[0];
+
+    const nearest = await nearestLiveMemory({
+      userId,
+      embeddingLiteral: vec,
+      kind,
+      excludeId: created.id,
+    });
+    if (nearest && nearest.l2_dist < L2_UPDATE) {
+      await query(
+        `
+        INSERT INTO memory_links (user_id, from_id, to_id, rel, confidence)
+        VALUES ($1, $2, $3, 'duplicates', $4)
+        ON CONFLICT DO NOTHING
+        `,
+        [userId, created.id, nearest.id, Math.max(0, 1 - nearest.l2_dist)],
+      );
+    }
+
+    const [withLineage] = await attachLineage(userId, [created]);
+    return NextResponse.json({ memory: withLineage });
   } catch (e) {
     const message = e instanceof Error ? e.message : "create memory failed";
     return NextResponse.json({ error: message }, { status: 500 });

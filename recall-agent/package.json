@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:cluster": "node scripts/multi-instance.mjs",
     "lint": "eslint",
     "db:schema": "node -e \"console.log('Apply: psql %DATABASE_URL% -f sql/schema_v3.sql')\""
   },

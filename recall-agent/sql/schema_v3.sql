@@ -62,10 +62,17 @@ CREATE TYPE message_role AS ENUM (
 CREATE TABLE users (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   display_name  STRING,
+  -- Nullable so Guest rows stay email-less. Claim/register fills these.
+  email         STRING,
+  password_hash BYTES,
   is_anonymous  BOOL NOT NULL DEFAULT true,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT users_email_lower CHECK (email IS NULL OR email = lower(email))
 );
+
+-- Multiple NULL emails are allowed; claimed accounts are unique by email.
+CREATE UNIQUE INDEX users_email_uq ON users (email) WHERE email IS NOT NULL;
 
 CREATE TABLE auth_sessions (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -139,17 +146,21 @@ CREATE TABLE memories (
   source_thread_id    UUID REFERENCES threads (id) ON DELETE SET NULL,
 
   -- Soft delete for audit-friendly forget (P12)
-  deleted_at          TIMESTAMPTZ
+  deleted_at          TIMESTAMPTZ,
+
+  -- UPDATE expires the old row (valid_to) and inserts a successor.
+  -- Current facts: deleted_at IS NULL AND valid_to IS NULL.
+  valid_to            TIMESTAMPTZ
 );
 
--- Tenant + recency browse
+-- Tenant + recency browse (current versions only)
 CREATE INDEX memories_user_kind_updated_idx
   ON memories (user_id, kind, updated_at DESC)
-  WHERE deleted_at IS NULL;
+  WHERE deleted_at IS NULL AND valid_to IS NULL;
 
 CREATE INDEX memories_user_last_used_idx
   ON memories (user_id, last_used_at DESC NULLS LAST)
-  WHERE deleted_at IS NULL;
+  WHERE deleted_at IS NULL AND valid_to IS NULL;
 
 CREATE INDEX memories_source_message_idx
   ON memories (source_message_id)
@@ -279,6 +290,7 @@ vec AS (
   FROM vec_ann a
   INNER JOIN memories m ON m.id = a.id
   WHERE m.deleted_at IS NULL
+    AND m.valid_to IS NULL
     AND m.embedding IS NOT NULL
 ),
 txt AS (
@@ -288,6 +300,7 @@ txt AS (
   FROM memories m, q
   WHERE m.user_id = q.user_id
     AND m.deleted_at IS NULL
+    AND m.valid_to IS NULL
     AND m.content_tsv @@ q.q_ts
   ORDER BY score_txt DESC
   LIMIT 50
@@ -314,6 +327,7 @@ fused AS (
   LEFT JOIN txt t ON t.id = m.id
   WHERE m.user_id = (SELECT user_id FROM q)
     AND m.deleted_at IS NULL
+    AND m.valid_to IS NULL
     AND (v.id IS NOT NULL OR t.id IS NOT NULL)
 )
 SELECT
@@ -377,6 +391,7 @@ SELECT a.id, m.kind, m.content, a.l2_dist
 FROM ann a
 INNER JOIN memories m ON m.id = a.id
 WHERE m.deleted_at IS NULL
+  AND m.valid_to IS NULL
   AND m.kind = $3::memory_kind
 ORDER BY a.l2_dist
 LIMIT 5;
@@ -400,11 +415,12 @@ BEGIN;
   -- INSERT INTO memory_links (user_id, from_id, to_id, rel, confidence)
   -- VALUES ($1, $new_id, $old_id, 'duplicates', $conf);
 
-  -- If superseding $old_id:
-  -- UPDATE memories SET content = $3, embedding = $4, updated_at = now()
-  -- WHERE id = $old_id AND user_id = $1;
+  -- If superseding $old_id (do not clobber):
+  -- UPDATE memories SET valid_to = now(), updated_at = now()
+  -- WHERE id = $old_id AND user_id = $1 AND valid_to IS NULL;
+  -- INSERT new row, then:
   -- INSERT INTO memory_links (user_id, from_id, to_id, rel, confidence)
-  -- VALUES ($1, $new_id_or_old, $old_id, 'supersedes', $conf);
+  -- VALUES ($1, $new_id, $old_id, 'supersedes', $conf);
 
   INSERT INTO memory_extraction_log (
     user_id, thread_id, source_message_id,
@@ -485,7 +501,7 @@ SELECT
     ELSE EXTRACT(EPOCH FROM (now() - m.last_used_at)) / 86400.0
   END AS days_since_use
 FROM memories m
-WHERE m.deleted_at IS NULL;
+WHERE m.deleted_at IS NULL AND m.valid_to IS NULL;
 
 -- Hybrid score component breakdown from usage events
 CREATE OR REPLACE VIEW v_hybrid_score_breakdown AS
@@ -531,7 +547,7 @@ LIMIT 8;
 -- Active memories by kind
 SELECT kind, count(*) AS n, avg(hit_count) AS avg_hits
 FROM memories
-WHERE user_id = $uid AND deleted_at IS NULL
+WHERE user_id = $uid AND deleted_at IS NULL AND valid_to IS NULL
 GROUP BY kind
 ORDER BY n DESC;
 

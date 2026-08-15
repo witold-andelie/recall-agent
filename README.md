@@ -17,7 +17,7 @@ One CockroachDB cluster is the record system: ops rows, `VECTOR(1024)`, PostgreS
 | Object | Role |
 |---|---|
 | **Recall App** | Next.js agent: Chat `/`, Memory Browser `/memory` |
-| **Auth session** | Anonymous trial cookie → stable `user_id` (every memory SQL is tenant-scoped) |
+| **Auth session** | Guest cookie trial, then email/password claim. Same `user_id` across browsers. Every memory SQL is tenant-scoped. |
 | **Thread / Message** | Conversation + lineage (`source_message_id`) |
 | **Memory** | Fact table: `preference` \| `fact` \| `task_state`; `content` + `content_tsv`; `embedding VECTOR(1024)`; `hit_count`, `last_used_at`, `importance` |
 | **MemoryLink** | Graph edges: `supersedes` \| `duplicates` \| `derived_from` |
@@ -44,7 +44,7 @@ User message
 
 Reads are retrieval into the prompt. Writes are extract → SQL decision → persist. The model never decides merge/skip; SQL does.
 
-Conversation control is the same tenant rule: authenticate (anonymous first login), create/list threads, browse / hybrid-search / CRUD memories. A delete in `/memory` changes the next answer.
+Conversation control is the same tenant rule: start as Guest, register to claim that `user_id`, sign in on another browser, create/list threads, browse / hybrid-search / CRUD memories. A delete in `/memory` changes the next answer.
 
 ### SQL surface (what judges can EXPLAIN)
 
@@ -55,6 +55,8 @@ Conversation control is the same tenant rule: authenticate (anonymous first logi
 **Analytics** — daily funnel (messages → extractions → ADD/UPDATE/SKIP), reuse buckets, score-component averages.
 
 Demo path: Claude Code + Managed Cloud MCP, `EXPLAIN` the hybrid ANN statement, then `SELECT * FROM v_memory_funnel`.
+
+Open-work loop: user names a job → extract `task_state` → every later turn **pins** live `task_state` rows (hybrid can miss “what’s left?”) → progress UPDATE/supersedes → delete on `/memory` drops the job.
 
 ### Hackathon requirements
 
@@ -82,7 +84,7 @@ Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete →
 - Official CockroachDB skills are **dev-time**. Chat does not invoke them. After clone: `git submodule update --init --recursive`.
 - Managed MCP is the official Cloud HTTP server. First connect needs OAuth in Claude Code (or Cursor). Chat still uses `DATABASE_URL` + `pg`, not MCP.
 - Older on-demand Claude 3.x model IDs are often EOL on new accounts. Prefer the `us.*` inference-profile ID or Amazon Nova. Probe with `recall-agent/scripts/probe-bedrock.mjs`.
-- Operations in this repo: structured JSON logs, `/api/health`, Zod on memory extract, pool timeouts, optional `sql/app_grants.sql`. Scale is shown by memory/transaction volume in CockroachDB, not by throttling chat. The app is still a single Next.js process.
+- Operations in this repo: structured JSON logs, `/api/health` (instance + pool + in-flight chat), Zod on memory extract, configurable `DATABASE_POOL_MAX`, per-process `CHAT_MAX_INFLIGHT` gate, optional `sql/app_grants.sql`. Scale is CRDB row/transaction volume plus multiple Next.js processes behind a load balancer (`npm run start:cluster` or repo-root `docker compose up`). Not Lambda/S3.
 
 ---
 
@@ -108,17 +110,21 @@ Demo:
 1. `I prefer concise answers. I work in TypeScript on AWS.`
 2. `What do you know about my preferences?`
 3. Memory hits (hybrid scores) and New writes (ADD / UPDATE / SKIP) on the right.
-4. `/memory` — search or delete; the next turn reflects deletes.
-5. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.
+4. Open work: `I am shipping Recall this week. Left: 3-minute video, GitHub About license, public demo URL.` Then `What is left?` Then `The video is done.`
+5. `/memory` — search or delete; the next turn reflects deletes.
+6. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.
 
 ### API
 
 | Route | Purpose |
 |---|---|
-| `POST /api/auth` | Anonymous session cookie |
+| `POST /api/auth` | Guest session cookie + profile |
+| `POST /api/auth/register` | Claim current Guest (email + password) |
+| `POST /api/auth/login` | Switch cookie to an existing account |
+| `POST /api/auth/logout` | Expire session; next request is a new Guest |
 | `GET` / `POST /api/threads` | Threads |
 | `POST /api/chat` | NDJSON stream: retrieve → reply → extract → store |
-| `GET` / `POST` / `DELETE /api/memories` | Browser + hybrid `?q=` |
+| `GET` / `POST` / `DELETE /api/memories` | Browser + hybrid `?q=` + lineage. `?history=1` includes expired (`valid_to`) versions |
 | `GET /api/health` | Process + CockroachDB ping |
 | `GET /api/ops/funnel` | This tenant's `v_memory_funnel` (last 7 days) |
 

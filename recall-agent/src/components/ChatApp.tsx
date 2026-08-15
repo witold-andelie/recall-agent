@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Nav } from "./Nav";
+import { useAuth } from "./AuthProvider";
+import type { Thread } from "@/lib/types";
+
+const THREAD_KEY = "recall_thread_id";
+const USER_KEY = "recall_user_id";
 
 type Hit = {
   id: string;
@@ -30,11 +35,14 @@ type UiMessage = {
 };
 
 export function ChatApp() {
+  const { user } = useAuth();
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [threads, setThreads] = useState<Thread[]>([]);
   const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hits, setHits] = useState<Hit[]>([]);
+  const [openWork, setOpenWork] = useState<Hit[]>([]);
   const [writes, setWrites] = useState<Write[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [locale, setLocale] = useState<{ tag: string; label: string } | null>(
@@ -57,6 +65,7 @@ export function ChatApp() {
     totalMs: number;
   } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const userId = user?.userId ?? null;
 
   const refreshFunnel = useCallback(() => {
     void fetch("/api/ops/funnel")
@@ -67,9 +76,121 @@ export function ChatApp() {
       .catch(() => undefined);
   }, []);
 
+  const refreshOpenWork = useCallback(() => {
+    void fetch("/api/memories?kind=task_state")
+      .then((r) => r.json())
+      .then((j) => {
+        if (!Array.isArray(j.memories)) return;
+        setOpenWork(
+          j.memories.map(
+            (m: { id: string; content: string; hit_count?: number }) => ({
+              id: m.id,
+              kind: "task_state",
+              content: m.content,
+              hybrid_score: 1,
+              score_vec: 0,
+              score_txt: 0,
+              score_recency: 1,
+              score_usage: 0,
+              hit_count: m.hit_count ?? 0,
+            }),
+          ),
+        );
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const resetConversation = useCallback(() => {
+    setThreadId(null);
+    setMessages([]);
+    setHits([]);
+    setWrites([]);
+    setTiming(null);
+    setLocale(null);
+    setError(null);
+    try {
+      localStorage.removeItem(THREAD_KEY);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const openThread = useCallback(async (id: string) => {
+    const res = await fetch(`/api/threads/${id}/messages`);
+    const data = (await res.json()) as {
+      messages?: Array<{ id: string; role: string; content: string }>;
+      error?: string;
+    };
+    if (!res.ok) {
+      throw new Error(data.error || "load thread failed");
+    }
+    setThreadId(id);
+    setMessages(
+      (data.messages || [])
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+    );
+    setHits([]);
+    setWrites([]);
+    try {
+      localStorage.setItem(THREAD_KEY, id);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const loadThreads = useCallback(async () => {
+    const res = await fetch("/api/threads");
+    const data = (await res.json()) as { threads?: Thread[]; error?: string };
+    if (!res.ok) {
+      throw new Error(data.error || "load threads failed");
+    }
+    setThreads(data.threads || []);
+    return data.threads || [];
+  }, []);
+
   useEffect(() => {
-    void fetch("/api/auth", { method: "POST" }).then(() => refreshFunnel());
-  }, [refreshFunnel]);
+    if (!userId) return;
+    let cancelled = false;
+    let switched = false;
+    try {
+      const prev = localStorage.getItem(USER_KEY);
+      switched = Boolean(prev && prev !== userId);
+      if (switched) localStorage.removeItem(THREAD_KEY);
+      localStorage.setItem(USER_KEY, userId);
+    } catch {
+      /* ignore */
+    }
+    void (async () => {
+      try {
+        if (switched) resetConversation();
+        const list = await loadThreads();
+        if (cancelled) return;
+        refreshFunnel();
+        refreshOpenWork();
+        let saved: string | null = null;
+        try {
+          saved = localStorage.getItem(THREAD_KEY);
+        } catch {
+          saved = null;
+        }
+        if (saved && list.some((t) => t.id === saved)) {
+          await openThread(saved);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "load threads failed");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, loadThreads, refreshFunnel, refreshOpenWork, openThread, resetConversation]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -97,6 +218,9 @@ export function ChatApp() {
 
       if (!res.ok || !res.body) {
         const j = await res.json().catch(() => ({}));
+        if (res.status === 503) {
+          throw new Error("Server is busy — retry in a moment.");
+        }
         throw new Error(j.error || `HTTP ${res.status}`);
       }
 
@@ -118,6 +242,7 @@ export function ChatApp() {
             text?: string;
             threadId?: string;
             memories?: Hit[];
+            openWork?: Hit[];
             memoryWrites?: Write[];
             message?: string;
             locale?: { tag: string; label: string };
@@ -135,8 +260,16 @@ export function ChatApp() {
           }
 
           if (evt.type === "meta") {
-            if (evt.threadId) setThreadId(evt.threadId);
+            if (evt.threadId) {
+              setThreadId(evt.threadId);
+              try {
+                localStorage.setItem(THREAD_KEY, evt.threadId);
+              } catch {
+                /* ignore */
+              }
+            }
             if (evt.memories) setHits(evt.memories);
+            if (evt.openWork) setOpenWork(evt.openWork);
             if (evt.locale) setLocale(evt.locale);
           } else if (evt.type === "token" && evt.text) {
             setMessages((prev) =>
@@ -151,6 +284,8 @@ export function ChatApp() {
             if (evt.memories) setHits(evt.memories);
             if (evt.timing) setTiming(evt.timing);
             refreshFunnel();
+            refreshOpenWork();
+            void loadThreads();
           } else if (evt.type === "error") {
             throw new Error(evt.message || "stream error");
           } else if (evt.type === "warn") {
@@ -166,14 +301,53 @@ export function ChatApp() {
     } finally {
       setBusy(false);
     }
-  }, [busy, input, threadId, refreshFunnel]);
+  }, [busy, input, threadId, refreshFunnel, refreshOpenWork, loadThreads]);
 
   return (
     <div className="flex min-h-screen flex-col">
       <Nav active="chat" />
-      <div className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-0 md:grid-cols-[1fr_320px]">
-        {/* Chat column */}
-        <main className="flex min-h-[70vh] flex-col border-r border-slate-800/80">
+      <div className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-0 md:grid-cols-[200px_1fr_300px]">
+        <aside className="flex max-h-[28vh] flex-col border-b border-slate-800/80 md:max-h-none md:border-b-0 md:border-r">
+          <div className="flex items-center justify-between px-3 py-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Threads
+            </h2>
+            <button
+              type="button"
+              onClick={resetConversation}
+              className="rounded-md px-2 py-1 text-[11px] text-emerald-300 hover:bg-slate-800"
+            >
+              New
+            </button>
+          </div>
+          <ul className="flex-1 space-y-0.5 overflow-y-auto px-2 pb-3">
+            {threads.length === 0 && (
+              <li className="px-2 py-2 text-[11px] text-slate-600">
+                No saved threads yet.
+              </li>
+            )}
+            {threads.map((t) => (
+              <li key={t.id}>
+                <button
+                  type="button"
+                  onClick={() => void openThread(t.id).catch((e) => {
+                    setError(e instanceof Error ? e.message : "open failed");
+                  })}
+                  className={`w-full truncate rounded-md px-2 py-1.5 text-left text-xs ${
+                    t.id === threadId
+                      ? "bg-slate-800 text-emerald-200"
+                      : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
+                  }`}
+                  title={t.title}
+                >
+                  {t.title || "Untitled"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </aside>
+
+        <main className="flex min-h-[50vh] flex-col border-r border-slate-800/80">
           <div className="flex-1 space-y-4 overflow-y-auto px-4 py-6">
             {messages.length === 0 && (
               <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 text-sm text-slate-400">
@@ -181,14 +355,15 @@ export function ChatApp() {
                   Persistent memory, not a bolt-on cache
                 </p>
                 <p>
-                  Say something durable (preferences, facts, task state). Recall
-                  stores it in CockroachDB with hybrid retrieval — vector +
-                  PostgreSQL full-text — then uses it on the next turn.
+                  One job loop: say what you are shipping. Recall stores it as
+                  <span className="text-slate-300"> task_state </span>
+                  and pins it on every later turn. Progress supersedes the old
+                  row; delete it on Memory to drop the job.
                 </p>
                 <p className="mt-3 text-xs text-slate-500">
-                  Try: &quot;I prefer concise answers and I use TypeScript at
-                  work.&quot; Then ask: &quot;What do you know about me?&quot;
-                  Switch mid-thread: &quot;Responde en espanol: que sabes de mi?&quot;
+                  Try: &quot;I am shipping Recall this week. Left: 3-minute
+                  video, GitHub About license, public demo URL.&quot; Then
+                  &quot;What is left?&quot; Then &quot;The video is done.&quot;
                 </p>
               </div>
             )}
@@ -245,7 +420,6 @@ export function ChatApp() {
           </div>
         </main>
 
-        {/* Memory panel */}
         <aside className="flex flex-col gap-4 bg-slate-950/40 p-4 text-sm">
           {locale && (
             <p className="text-[11px] text-slate-500">
@@ -267,6 +441,27 @@ export function ChatApp() {
               {funnel[0].update_n} UPD · {funnel[0].skip_n} SKIP
             </p>
           )}
+          <section>
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-300">
+              Open work
+            </h2>
+            {openWork.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                No open work. Name a job and the remaining steps.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {openWork.map((t) => (
+                  <li
+                    key={t.id}
+                    className="rounded-lg border border-amber-900/50 bg-amber-950/30 p-2.5"
+                  >
+                    <p className="text-xs text-amber-50">{t.content}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
           <section>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-teal-400">
               Memory hits (this turn)

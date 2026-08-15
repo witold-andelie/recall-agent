@@ -3,11 +3,14 @@ import { requireUserId } from "@/lib/session/user";
 import { embedText } from "@/lib/ai/embed";
 import { streamChat, type ChatMessage } from "@/lib/ai/chat";
 import { hybridRetrieve, recordMemoryHits } from "@/lib/memory/hybrid";
+import { listOpenTasks, mergeWorkingSet } from "@/lib/memory/working";
 import { extractMemories } from "@/lib/memory/extract";
 import { dedupeAndStore } from "@/lib/memory/dedupe";
 import { buildSystemPrompt } from "@/lib/prompt";
 import { detectReplyLocale } from "@/lib/language";
 import { logEvent, newRequestId } from "@/lib/log";
+import { acquireChatSlot } from "@/lib/limit";
+import { instanceId } from "@/lib/env";
 import type { HybridHit, Message } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -65,16 +68,35 @@ export async function POST(req: Request) {
       threadId,
     ]);
 
+    const slot = await acquireChatSlot();
+    if (!slot.ok) {
+      logEvent("chat.busy", {
+        requestId,
+        userId,
+        instance: instanceId(),
+        waiting: slot.waiting,
+      });
+      return Response.json(
+        { error: "busy", requestId, retryAfterMs: slot.waitMs },
+        { status: 503, headers: { "Retry-After": "2" } },
+      );
+    }
+
+    try {
     const tEmbed = Date.now();
     const queryEmb = await embedText(text);
     const embedMs = Date.now() - tEmbed;
     const tRetrieve = Date.now();
-    const hits = await hybridRetrieve({
-      userId,
-      queryEmbedding: queryEmb,
-      queryText: text,
-      limit: 8,
-    });
+    const [hybridHits, openWork] = await Promise.all([
+      hybridRetrieve({
+        userId,
+        queryEmbedding: queryEmb,
+        queryText: text,
+        limit: 8,
+      }),
+      listOpenTasks(userId),
+    ]);
+    const hits = mergeWorkingSet(hybridHits, openWork);
     const retrieveMs = Date.now() - tRetrieve;
 
     await recordMemoryHits({
@@ -98,7 +120,7 @@ export async function POST(req: Request) {
     const locale = detectReplyLocale(text);
 
     const chatMessages: ChatMessage[] = [
-      { role: "system", content: buildSystemPrompt(hits, locale) },
+      { role: "system", content: buildSystemPrompt(hits, locale, openWork) },
       ...chronological
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -122,6 +144,7 @@ export async function POST(req: Request) {
             userMessageId: userMessage.id,
             locale,
             memories: hits.map(publicHit),
+            openWork: openWork.map(publicHit),
           });
 
           let assistantText = "";
@@ -148,6 +171,7 @@ export async function POST(req: Request) {
               userMessage: text,
               assistantMessage: assistantText,
               locale,
+              openWork,
             });
             if (candidates.length) {
               writes = await dedupeAndStore({
@@ -175,6 +199,7 @@ export async function POST(req: Request) {
           };
           logEvent("chat.done", {
             requestId,
+            instance: instanceId(),
             userId,
             threadId,
             hits: hits.length,
@@ -190,6 +215,7 @@ export async function POST(req: Request) {
             assistantMessageId: assistantMessage.id,
             memoryWrites: writes,
             memoriesUsed: hits.map(publicHit),
+            openWork: openWork.map(publicHit),
             timing,
           });
           controller.close();
@@ -198,6 +224,8 @@ export async function POST(req: Request) {
           logEvent("chat.error", { requestId, userId, message });
           send({ type: "error", requestId, message });
           controller.close();
+        } finally {
+          slot.release();
         }
       },
     });
@@ -208,6 +236,10 @@ export async function POST(req: Request) {
         "Cache-Control": "no-cache, no-transform",
       },
     });
+    } catch (inner) {
+      slot.release();
+      throw inner;
+    }
   } catch (e) {
     const message = e instanceof Error ? e.message : "chat failed";
     logEvent("chat.error", { requestId, message });

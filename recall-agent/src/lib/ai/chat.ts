@@ -1,8 +1,6 @@
-import {
-  BedrockRuntimeClient,
-  ConverseStreamCommand,
-} from "@aws-sdk/client-bedrock-runtime";
+import { ConverseStreamCommand } from "@aws-sdk/client-bedrock-runtime";
 import { getAiProvider } from "./config";
+import { getBedrockClient } from "./bedrock";
 
 export type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 
@@ -80,11 +78,10 @@ async function* streamOpenAI(
 async function* streamBedrock(
   messages: ChatMessage[],
 ): AsyncGenerator<string, void, unknown> {
-  const region = process.env.AWS_REGION || "us-east-1";
   const modelId =
     process.env.BEDROCK_CHAT_MODEL ||
     "us.anthropic.claude-haiku-4-5-20251001-v1:0";
-  const client = new BedrockRuntimeClient({ region });
+  const client = getBedrockClient();
 
   const system = messages
     .filter((m) => m.role === "system")

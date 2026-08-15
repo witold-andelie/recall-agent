@@ -1,9 +1,7 @@
-import {
-  BedrockRuntimeClient,
-  InvokeModelCommand,
-} from "@aws-sdk/client-bedrock-runtime";
+import { InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { createHash } from "crypto";
 import { getAiProvider, normalizeEmbedding, embeddingDims } from "./config";
+import { getBedrockClient } from "./bedrock";
 
 /**
  * Embed text → VECTOR(n).
@@ -109,10 +107,9 @@ async function embedOpenAI(text: string): Promise<number[]> {
 }
 
 async function embedBedrock(text: string): Promise<number[]> {
-  const region = process.env.AWS_REGION || "us-east-1";
   const modelId =
     process.env.BEDROCK_EMBED_MODEL || "amazon.titan-embed-text-v2:0";
-  const client = new BedrockRuntimeClient({ region });
+  const client = getBedrockClient();
 
   const dims = embeddingDims();
   const body = JSON.stringify({

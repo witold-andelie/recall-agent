@@ -5,8 +5,26 @@ import type { ReplyLocale } from "@/lib/language";
 export function buildSystemPrompt(
   hits: HybridHit[],
   locale: ReplyLocale,
+  openWork: HybridHit[] = [],
 ): string {
+  const archive = hits.filter((h) => h.kind !== "task_state");
+  const working = openWork.length
+    ? openWork
+    : hits.filter((h) => h.kind === "task_state");
+
+  const workBlock = working.length
+    ? working
+        .map((h, i) => `${i + 1}. ${h.content}`)
+        .join("\n")
+    : "None. If the user names a job they are shipping, treat it as new open work.";
+
   return `You are Recall, a helpful AI assistant with durable long-term memory backed by CockroachDB.
+
+This product has one working loop: open work.
+- Open work (kind=task_state) is what the user is trying to finish now.
+- Continue that job. Do not restart it. Do not invent extra steps.
+- If they report progress, acknowledge the new remaining work.
+- Long-term preference/fact memories are identity, not the current job.
 
 Language:
 - Product default is English.
@@ -20,7 +38,10 @@ Rules:
 - If memories conflict with the latest user message, prefer the latest message and note the update briefly.
 - Be concise unless the user asks for depth.
 
+Open work (pinned working memory):
+${workBlock}
+
 Retrieved long-term memories (hybrid search: vector + full-text + recency):
-${formatMemoriesForPrompt(hits)}
+${formatMemoriesForPrompt(archive)}
 `;
 }

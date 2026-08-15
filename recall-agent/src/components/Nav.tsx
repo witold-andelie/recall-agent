@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { AuthControls } from "./AuthControls";
 
 export function Nav({ active }: { active: "chat" | "memory" }) {
   return (
@@ -16,28 +19,31 @@ export function Nav({ active }: { active: "chat" | "memory" }) {
           </div>
         </div>
       </div>
-      <nav className="flex gap-1 text-sm">
-        <Link
-          href="/"
-          className={`rounded-md px-3 py-1.5 ${
-            active === "chat"
-              ? "bg-slate-800 text-emerald-300"
-              : "text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          Chat
-        </Link>
-        <Link
-          href="/memory"
-          className={`rounded-md px-3 py-1.5 ${
-            active === "memory"
-              ? "bg-slate-800 text-teal-300"
-              : "text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          Memory
-        </Link>
-      </nav>
+      <div className="flex items-center gap-3">
+        <nav className="flex gap-1 text-sm">
+          <Link
+            href="/"
+            className={`rounded-md px-3 py-1.5 ${
+              active === "chat"
+                ? "bg-slate-800 text-emerald-300"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Chat
+          </Link>
+          <Link
+            href="/memory"
+            className={`rounded-md px-3 py-1.5 ${
+              active === "memory"
+                ? "bg-slate-800 text-teal-300"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            Memory
+          </Link>
+        </nav>
+        <AuthControls />
+      </div>
     </header>
   );
 }

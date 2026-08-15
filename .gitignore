@@ -22,3 +22,7 @@ secrets.env
 
 # Junction/symlink to the official skills submodule (recreate locally)
 .claude/skills/cockroachdb-skills
+
+# Local CodeGraph indexes
+.codegraph/
+**/.codegraph/

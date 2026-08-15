@@ -44,6 +44,7 @@ export async function hybridRetrieve(opts: {
       FROM vec_ann a
       INNER JOIN memories m ON m.id = a.id
       WHERE m.deleted_at IS NULL
+        AND m.valid_to IS NULL
         AND m.embedding IS NOT NULL
     ),
     txt AS (
@@ -53,6 +54,7 @@ export async function hybridRetrieve(opts: {
       FROM memories m, q
       WHERE m.user_id = q.user_id
         AND m.deleted_at IS NULL
+        AND m.valid_to IS NULL
         AND m.content_tsv @@ q.q_ts
       ORDER BY score_txt DESC
       LIMIT 50
@@ -70,6 +72,7 @@ export async function hybridRetrieve(opts: {
         m.updated_at,
         m.source_message_id,
         m.source_thread_id,
+        m.valid_to,
         COALESCE(v.score_vec, 0.0)::float8 AS score_vec,
         COALESCE(t.score_txt, 0.0)::float8 AS score_txt,
         exp(
@@ -82,6 +85,7 @@ export async function hybridRetrieve(opts: {
       LEFT JOIN txt t ON t.id = m.id
       WHERE m.user_id = $1::uuid
         AND m.deleted_at IS NULL
+        AND m.valid_to IS NULL
         AND (v.id IS NOT NULL OR t.id IS NOT NULL)
     )
     SELECT

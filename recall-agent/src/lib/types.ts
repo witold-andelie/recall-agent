@@ -3,6 +3,15 @@ export type MessageRole = "user" | "assistant" | "system";
 export type DedupeAction = "ADD" | "UPDATE" | "SKIP";
 export type MemoryLinkRel = "supersedes" | "duplicates" | "derived_from";
 
+export type MemoryLineageLink = {
+  id: string;
+  rel: MemoryLinkRel;
+  role: "from" | "to";
+  content: string;
+  valid_to: string | null;
+  confidence: number;
+};
+
 export type Memory = {
   id: string;
   user_id: string;
@@ -15,6 +24,9 @@ export type Memory = {
   updated_at: string;
   source_message_id: string | null;
   source_thread_id: string | null;
+  valid_to?: string | null;
+  lineage?: MemoryLineageLink[];
+  skip_count?: number;
 };
 
 export type HybridHit = Memory & {
@@ -46,4 +58,12 @@ export type MemoryCandidate = {
   kind: MemoryKind;
   content: string;
   importance?: number;
+};
+
+export type SessionUser = {
+  userId: string;
+  isNew: boolean;
+  email: string | null;
+  displayName: string | null;
+  isAnonymous: boolean;
 };
