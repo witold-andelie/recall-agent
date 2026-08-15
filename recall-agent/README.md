@@ -27,6 +27,8 @@ npm run dev
 
 Open http://localhost:3000
 
+Public deploy: repo-root [`render.yaml`](../render.yaml). In Render: **New → Blueprint** → this GitHub repo. Set `DATABASE_URL` and AWS keys. After you have `https://….onrender.com`, put it in `APP_URL` and (optional) Google OAuth redirect `{APP_URL}/api/auth/google/callback`.
+
 ## Memory loop (demo script)
 
 1. “I prefer concise answers. I work in TypeScript on AWS.”

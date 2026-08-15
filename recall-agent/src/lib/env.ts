@@ -11,6 +11,7 @@ export function sessionSecret(): string {
 export function instanceId(): string {
   return (
     process.env.INSTANCE_ID ||
+    process.env.RENDER_INSTANCE_ID ||
     process.env.HOSTNAME ||
     `pid-${process.pid}`
   );

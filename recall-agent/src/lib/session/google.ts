@@ -7,7 +7,10 @@ export function googleConfigured(): boolean {
 }
 
 export function appOrigin(req: Request): string {
-  const fromEnv = process.env.APP_URL?.replace(/\/$/, "");
+  const fromEnv = (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL)?.replace(
+    /\/$/,
+    "",
+  );
   if (fromEnv) return fromEnv;
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
   const proto = req.headers.get("x-forwarded-proto") || "http";

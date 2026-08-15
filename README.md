@@ -104,6 +104,25 @@ npm install
 npm run dev
 ```
 
+### Deploy on Render
+
+The GitHub repo already has [`render.yaml`](./render.yaml). In [Render Dashboard](https://dashboard.render.com/):
+
+1. **New → Blueprint** and select `witold-andelie/recall-agent` (`main`).
+2. Set secrets (do not commit them):
+   - `DATABASE_URL` — CockroachDB Cloud connection string (`sslmode=verify-full` is fine).
+   - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` — same keys you use locally for Bedrock.
+   - `SESSION_SECRET` is generated if you use the Blueprint.
+3. If the Cloud cluster has an IP allowlist, allow Render egress (or `0.0.0.0/0` for the demo).
+4. After the first deploy, copy the `https://….onrender.com` URL into `APP_URL`.
+5. Google login (optional): in Google Cloud, add  
+   `{APP_URL}/api/auth/google/callback`  
+   as an authorized redirect, then set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+
+Health check is `GET /api/health` (needs a working `DATABASE_URL` or the deploy stays unhealthy).
+
+Free Render instances sleep after idle time; the first request after sleep can take ~30s.
+
 Open http://localhost:3000
 
 Demo:
