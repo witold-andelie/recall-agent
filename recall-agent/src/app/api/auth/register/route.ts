@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { parseCredentials } from "@/lib/session/password";
+import { parseUsernamePassword } from "@/lib/session/password";
 import { registerCurrentUser } from "@/lib/session/user";
 
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as {
-      email?: string;
+      username?: string;
       password?: string;
       displayName?: string;
     };
-    const parsed = parseCredentials(body);
+    const parsed = parseUsernamePassword(body);
     if ("error" in parsed) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }

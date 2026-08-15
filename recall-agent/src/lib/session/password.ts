@@ -23,23 +23,27 @@ export async function verifyPassword(
   return timingSafeEqual(hash, expected);
 }
 
-export function normalizeEmail(raw: string): string {
+export function normalizeUsername(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-export function parseCredentials(body: {
-  email?: string;
+export function parseUsernamePassword(body: {
+  username?: string;
   password?: string;
   displayName?: string;
-}): { email: string; password: string; displayName: string | null } | { error: string } {
-  const email = normalizeEmail(body.email || "");
+}):
+  | { username: string; password: string; displayName: string | null }
+  | { error: string } {
+  const username = normalizeUsername(body.username || "");
   const password = body.password ?? "";
   const displayName = body.displayName?.trim().slice(0, 80) || null;
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
-    return { error: "valid email required" };
+  if (!/^[a-z][a-z0-9_]{2,31}$/.test(username)) {
+    return {
+      error: "username must be 3–32 chars, start with a letter, and use a-z 0-9 _",
+    };
   }
   if (password.length < 8 || password.length > 128) {
     return { error: "password must be 8–128 characters" };
   }
-  return { email, password, displayName };
+  return { username, password, displayName };
 }

@@ -64,6 +64,8 @@ CREATE TABLE users (
   display_name  STRING,
   -- Nullable so Guest rows stay email-less. Claim/register fills these.
   email         STRING,
+  username      STRING,
+  google_sub    STRING,
   password_hash BYTES,
   is_anonymous  BOOL NOT NULL DEFAULT true,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -73,6 +75,8 @@ CREATE TABLE users (
 
 -- Multiple NULL emails are allowed; claimed accounts are unique by email.
 CREATE UNIQUE INDEX users_email_uq ON users (email) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX users_username_uq ON users (username) WHERE username IS NOT NULL;
+CREATE UNIQUE INDEX users_google_sub_uq ON users (google_sub) WHERE google_sub IS NOT NULL;
 
 CREATE TABLE auth_sessions (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -83,6 +87,20 @@ CREATE TABLE auth_sessions (
 );
 
 CREATE INDEX auth_sessions_user_id_idx ON auth_sessions (user_id);
+
+CREATE TABLE auth_tokens (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  purpose       STRING NOT NULL,
+  token_hash    BYTES NOT NULL UNIQUE,
+  expires_at    TIMESTAMPTZ NOT NULL,
+  used_at       TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (purpose IN ('verify', 'reset'))
+);
+
+CREATE INDEX auth_tokens_user_purpose_idx
+  ON auth_tokens (user_id, purpose, created_at DESC);
 
 -- ---------------------------------------------------------------------------
 -- Threads & messages (conversation control + source lineage)

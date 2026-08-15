@@ -10,6 +10,7 @@ GRANT USAGE ON SCHEMA public TO recall_app;
 GRANT SELECT, INSERT, UPDATE ON
   users,
   auth_sessions,
+  auth_tokens,
   threads,
   messages,
   memories,

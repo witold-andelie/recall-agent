@@ -8,6 +8,9 @@
     "start": "next start",
     "start:cluster": "node scripts/multi-instance.mjs",
     "lint": "eslint",
+    "test": "tsx --test tests/*.test.ts",
+    "db:check": "node scripts/prod-check.mjs",
+    "db:grants": "node scripts/apply-app-grants.mjs",
     "db:schema": "node -e \"console.log('Apply: psql %DATABASE_URL% -f sql/schema_v3.sql')\""
   },
   "dependencies": {
@@ -29,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
+    "tsx": "^4.20.5",
     "typescript": "^5"
   }
 }

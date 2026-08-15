@@ -16,11 +16,11 @@ type AuthContextValue = {
   error: string | null;
   refresh: () => Promise<SessionUser | null>;
   register: (opts: {
-    email: string;
+    username: string;
     password: string;
     displayName?: string;
   }) => Promise<SessionUser>;
-  login: (opts: { email: string; password: string }) => Promise<SessionUser>;
+  login: (opts: { username: string; password: string }) => Promise<SessionUser>;
   logout: () => Promise<void>;
 };
 
@@ -35,6 +35,7 @@ async function readSession(res: Response): Promise<SessionUser> {
     userId: data.userId,
     isNew: Boolean(data.isNew),
     email: data.email ?? null,
+    username: data.username ?? null,
     displayName: data.displayName ?? null,
     isAnonymous: Boolean(data.isAnonymous),
   };
@@ -75,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (opts: { email: string; password: string; displayName?: string }) => {
+    async (opts: { username: string; password: string; displayName?: string }) => {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -89,17 +90,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const login = useCallback(async (opts: { email: string; password: string }) => {
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(opts),
-    });
-    const session = await readSession(res);
-    setUser(session);
-    setError(null);
-    return session;
-  }, []);
+  const login = useCallback(
+    async (opts: { username: string; password: string }) => {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(opts),
+      });
+      const session = await readSession(res);
+      setUser(session);
+      setError(null);
+      return session;
+    },
+    [],
+  );
 
   const logout = useCallback(async () => {
     const res = await fetch("/api/auth/logout", { method: "POST" });

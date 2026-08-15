@@ -11,9 +11,11 @@ export async function GET() {
   try {
     const pool = poolStats();
     await query(`SELECT 1 AS ok`);
+    await query(`SELECT 1 FROM auth_tokens LIMIT 0`);
     return Response.json({
       ok: true,
       db: true,
+      schema: true,
       dbMs: Date.now() - started,
       instance,
       pool,

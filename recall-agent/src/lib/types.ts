@@ -79,6 +79,7 @@ export type SessionUser = {
   userId: string;
   isNew: boolean;
   email: string | null;
+  username: string | null;
   displayName: string | null;
   isAnonymous: boolean;
 };

@@ -17,7 +17,7 @@ One CockroachDB cluster is the record system: ops rows, `VECTOR(1024)`, PostgreS
 | Object | Role |
 |---|---|
 | **Recall App** | Next.js agent: Chat `/`, Memory Browser `/memory` |
-| **Auth session** | Guest cookie trial, then email/password claim. Same `user_id` across browsers. Every memory SQL is tenant-scoped. |
+| **Auth session** | Guest cookie trial, then username/password or Google OAuth. Same `user_id` across browsers. Every memory SQL is tenant-scoped. |
 | **Thread / Message** | Conversation + lineage (`source_message_id`) |
 | **Memory** | Fact table: `preference` \| `fact` \| `task_state`; `content` + `content_tsv`; `embedding VECTOR(1024)`; `hit_count`, `last_used_at`, `importance` |
 | **MemoryLink** | Graph edges: `supersedes` \| `duplicates` \| `derived_from` |
@@ -25,7 +25,7 @@ One CockroachDB cluster is the record system: ops rows, `VECTOR(1024)`, PostgreS
 | **HybridScore** | `α·vec + β·ts_rank + γ·recency + δ·usage` in one CTE (CRDB vector index accelerates L2 `<->`, not cosine) |
 | **Chat / Embed models** | **Amazon Bedrock** — Claude Haiku 4.5 + Titan Embed V2 (1024-d); OpenAI-compatible chat as fallback |
 | **CockroachDB** | Serverless / PG wire; distributed **vector index** with `user_id` prefix; GIN on `content_tsv` |
-| **Analytics views** | `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown`, `v_duplicate_clusters` |
+| **Analytics views** | `v_memory_funnel`, `v_memory_reuse`, `v_hybrid_score_breakdown`, `v_duplicate_clusters`, `v_entity_clusters`, `v_l2_calibration` |
 | **CRDB toolchain** | (1) distributed vector index (runtime) · (2) Managed Cloud MCP · (3) official Agent Skills repo |
 | **AWS** | Amazon Bedrock (chat + Titan Embed V2) |
 
@@ -33,18 +33,19 @@ One CockroachDB cluster is the record system: ops rows, `VECTOR(1024)`, PostgreS
 
 ```
 User message
-  → embed query
-  → hybrid retrieve  (1 SQL: vector L2 + ts_rank + recency + hits, WHERE user_id = $uid)
-  → assemble EN prompt + top-K memories
+  → pin live task_state (open work)
+  → model may call search_memory / insert_memory / close_open_work
+      search_memory → one hybrid SQL (vector L2 + simple FTS + entity hop)
+      insert_memory → SQL ADD | UPDATE | SKIP
+      close_open_work → SET valid_to on live task_state
   → stream reply
-  → LLM extracts candidates only  (preference | fact | task_state)
-  → SQL dedupe decides ADD | UPDATE | SKIP  (near-neighbor L2 + optional links)
-  → store row + vector + tsvector  (per-candidate transaction)
+  → LLM may extract more candidates / entities / close_open_work
+  → SQL stores row + vector + tsvector (per-candidate transaction)
 ```
 
-Reads are retrieval into the prompt. Writes are extract → SQL decision → persist. The model never decides merge/skip; SQL does.
+Open work is always in the prompt. Archival facts are retrieved only via `search_memory`. The model never decides merge/skip; SQL does.
 
-Conversation control is the same tenant rule: start as Guest, register to claim that `user_id`, sign in on another browser, create/list threads, browse / hybrid-search / CRUD memories. A delete in `/memory` changes the next answer.
+Start as Guest, then claim the same `user_id` with **username + password** (no email check) or **Google OAuth**. Sign in on another browser, list threads, browse / hybrid-search / CRUD memories. A delete in `/memory` changes the next answer.
 
 ### SQL surface (what judges can EXPLAIN)
 
@@ -84,7 +85,7 @@ Judge walkthrough: chat two turns → Memory hits / ADD → `/memory` delete →
 - Official CockroachDB skills are **dev-time**. Chat does not invoke them. After clone: `git submodule update --init --recursive`.
 - Managed MCP is the official Cloud HTTP server. First connect needs OAuth in Claude Code (or Cursor). Chat still uses `DATABASE_URL` + `pg`, not MCP.
 - Older on-demand Claude 3.x model IDs are often EOL on new accounts. Prefer the `us.*` inference-profile ID or Amazon Nova. Probe with `recall-agent/scripts/probe-bedrock.mjs`.
-- Operations in this repo: structured JSON logs, `/api/health` (instance + pool + in-flight chat), Zod on memory extract, configurable `DATABASE_POOL_MAX`, per-process `CHAT_MAX_INFLIGHT` gate, optional `sql/app_grants.sql`. Scale is CRDB row/transaction volume plus multiple Next.js processes behind a load balancer (`npm run start:cluster` or repo-root `docker compose up`). Not Lambda/S3.
+- Operations in this repo: structured JSON logs, `/api/health` (instance + pool + in-flight chat), `npm test`, `npm run db:check`, Zod on memory extract, configurable `DATABASE_POOL_MAX`, per-process `CHAT_MAX_INFLIGHT` gate, `recall_app` grants. Scale is CRDB row/transaction volume plus multiple Next.js processes (`npm run start:cluster` or repo-root `docker compose up`). Not Lambda/S3. Bedrock IAM stays `AmazonBedrockFullAccess` on purpose. No email sending.
 
 ---
 
@@ -107,25 +108,30 @@ Open http://localhost:3000
 
 Demo:
 
-1. `I prefer concise answers. I work in TypeScript on AWS.`
-2. `What do you know about my preferences?`
-3. Memory hits (hybrid scores) and New writes (ADD / UPDATE / SKIP) on the right.
-4. Open work: `I am shipping Recall this week. Left: 3-minute video, GitHub About license, public demo URL.` Then `What is left?` Then `The video is done.`
-5. `/memory` — search or delete; the next turn reflects deletes.
-6. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.
+1. Register a username + password, or Continue with Google.
+2. `I prefer concise answers. I work in TypeScript on AWS.`
+3. `What do you know about my preferences?` — the model should call `search_memory` (right-hand Memory tools).
+4. Open work: `I am shipping Recall this week. Left: 3-minute video, GitHub About license, public demo URL.` Then `What is left?`
+5. `Everything is done — close that job.` — live `task_state` gets `valid_to`.
+6. `/memory` — search, lineage, entities, or delete; the next turn reflects deletes.
+7. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.
 
 ### API
 
 | Route | Purpose |
 |---|---|
 | `POST /api/auth` | Guest session cookie + profile |
-| `POST /api/auth/register` | Claim current Guest (email + password) |
-| `POST /api/auth/login` | Switch cookie to an existing account |
+| `POST /api/auth/register` | Claim Guest with username + password (no email) |
+| `POST /api/auth/login` | Username + password |
+| `GET /api/auth/google` | Start Google OAuth |
+| `GET /api/auth/google/callback` | Google OAuth return |
 | `POST /api/auth/logout` | Expire session; next request is a new Guest |
+| `POST /api/auth/password` | Change password (password accounts) |
 | `GET` / `POST /api/threads` | Threads |
-| `POST /api/chat` | NDJSON stream: retrieve → reply → extract → store |
-| `GET` / `POST` / `DELETE /api/memories` | Browser + hybrid `?q=` + lineage. `?history=1` includes expired (`valid_to`) versions |
-| `GET /api/health` | Process + CockroachDB ping |
+| `POST /api/chat` | NDJSON: pin open work → memory tools → stream → extract |
+| `GET` / `POST` / `DELETE /api/memories` | Browser + hybrid `?q=` + lineage. `?history=1` includes expired versions |
+| `GET /api/entities` | Tenant entity clusters |
+| `GET /api/health` | Process + CockroachDB + pool + chat gate |
 | `GET /api/ops/funnel` | This tenant's `v_memory_funnel` (last 7 days) |
 
 More app notes: [`recall-agent/README.md`](./recall-agent/README.md).

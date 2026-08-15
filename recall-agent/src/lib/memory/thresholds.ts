@@ -15,7 +15,7 @@ export type DedupeThresholds = {
   add_n: number;
 };
 
-type CalibRow = {
+export type CalibRow = {
   skip_n: number;
   update_n: number;
   add_n: number;
@@ -30,7 +30,7 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
 
-function fromRow(
+export function thresholdsFromCalibration(
   row: CalibRow | undefined,
   source: DedupeThresholds["source"],
 ): DedupeThresholds | null {
@@ -94,12 +94,12 @@ export async function getDedupeThresholds(
   try {
     if (userId) {
       const { rows } = await query<CalibRow>(CALIB_SQL, [userId]);
-      const user = fromRow(rows[0], "user");
+      const user = thresholdsFromCalibration(rows[0], "user");
       if (user) resolved = user;
     }
     if (resolved.source === "default") {
       const { rows } = await query<CalibRow>(CALIB_SQL, [null]);
-      const global = fromRow(rows[0], "global");
+      const global = thresholdsFromCalibration(rows[0], "global");
       if (global) resolved = global;
     }
   } catch {
