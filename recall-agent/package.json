@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:render": "node scripts/render-start.mjs",
     "start:cluster": "node scripts/multi-instance.mjs",
     "lint": "eslint",
     "test": "tsx --test tests/*.test.ts",

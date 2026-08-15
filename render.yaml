@@ -9,7 +9,7 @@ services:
     plan: free
     rootDir: recall-agent
     buildCommand: npm ci --include=dev && npm run build
-    startCommand: npm start
+    startCommand: npm run start:render
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
