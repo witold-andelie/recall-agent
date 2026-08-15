@@ -15,11 +15,13 @@ const Entity = z.object({
 const ExtractPayload = z.object({
   memories: z.array(Candidate).max(8).optional(),
   entities: z.array(Entity).max(8).optional(),
+  close_open_work: z.boolean().optional(),
 });
 
 export type ExtractResult = {
   memories: MemoryCandidate[];
   entities: EntityMention[];
+  closeOpenWork: boolean;
 };
 
 /**
@@ -39,7 +41,7 @@ export async function extractMemories(opts: {
       : "(none)";
   const system = `You extract durable memories and named entities for an AI agent.
 Return JSON:
-{"memories":[{"kind":"preference"|"fact"|"task_state","content":"...","importance":0.0-1.0}],"entities":[{"kind":"person"|"org"|"place"|"other","name":"..."}]}
+{"memories":[{"kind":"preference"|"fact"|"task_state","content":"...","importance":0.0-1.0}],"entities":[{"kind":"person"|"org"|"place"|"other","name":"..."}],"close_open_work":false}
 This product has one working loop: open work (kind=task_state).
 Current open work:
 ${open}
@@ -49,7 +51,7 @@ Rules:
 - task_state = the user's current job: goal, remaining steps, blocker, or progress. One standalone sentence that can replace the previous open-work sentence (SQL will UPDATE/supersede near-neighbors).
 - If they advanced the job, emit the NEW remaining state, not a repeat of the old sentence.
 - If the job is unchanged this turn, do not emit task_state.
-- If they explicitly closed the job with nothing left, omit task_state (they delete it in the UI).
+- If they explicitly finished or abandoned the job with nothing left (done, shipped, cancel that, nothing left), set close_open_work=true and do not emit a new task_state. SQL will expire live task_state rows.
 - preference / fact = lasting identity, not the current job.
 - entities: named people, organizations/teams, places, or a named project (other). Use the name as the user wrote it. Skip pronouns, generic nouns ("the team"), and secrets.
 - Max 3 memories and 4 entities. Empty arrays are fine.
@@ -65,20 +67,28 @@ Rules:
 
   try {
     const parsed = ExtractPayload.safeParse(JSON.parse(stripCodeFence(raw)));
-    if (!parsed.success) return { memories: [], entities: [] };
-    return {
-      memories: (parsed.data.memories || []).slice(0, 3).map((m) => ({
+    if (!parsed.success) {
+      return { memories: [], entities: [], closeOpenWork: false };
+    }
+    const closeOpenWork = Boolean(parsed.data.close_open_work);
+    const memories = (parsed.data.memories || [])
+      .slice(0, 3)
+      .filter((m) => !(closeOpenWork && m.kind === "task_state"))
+      .map((m) => ({
         kind: m.kind,
         content: m.content,
         importance: m.importance ?? (m.kind === "task_state" ? 0.8 : 0.5),
-      })),
+      }));
+    return {
+      memories,
       entities: (parsed.data.entities || []).slice(0, 4).map((e) => ({
         kind: e.kind,
         name: e.name,
       })),
+      closeOpenWork,
     };
   } catch {
-    return { memories: [], entities: [] };
+    return { memories: [], entities: [], closeOpenWork: false };
   }
 }
 

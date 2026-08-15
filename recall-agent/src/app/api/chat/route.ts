@@ -1,12 +1,15 @@
 import { query } from "@/lib/db/pool";
 import { requireUserId } from "@/lib/session/user";
-import { embedText } from "@/lib/ai/embed";
 import { streamChat, type ChatMessage } from "@/lib/ai/chat";
-import { hybridRetrieve, recordMemoryHits } from "@/lib/memory/hybrid";
-import { listOpenTasks, mergeWorkingSet } from "@/lib/memory/working";
+import { completeWithTools } from "@/lib/ai/complete-tools";
+import { listOpenTasks, expireOpenTasks } from "@/lib/memory/working";
 import { extractMemories } from "@/lib/memory/extract";
 import { dedupeAndStore } from "@/lib/memory/dedupe";
 import { upsertAndLinkEntities } from "@/lib/memory/entities";
+import {
+  executeMemoryTools,
+  formatToolResultsForModel,
+} from "@/lib/memory/agent-tools";
 import { buildSystemPrompt } from "@/lib/prompt";
 import { detectReplyLocale } from "@/lib/language";
 import { logEvent, newRequestId } from "@/lib/log";
@@ -24,7 +27,7 @@ type Body = {
 
 /**
  * POST /api/chat
- * Full memory loop: embed → hybrid retrieve → stream reply → extract → dedupe store.
+ * Memory loop: pin open work → optional search/insert/close tools → stream → extract.
  * Streams NDJSON lines: meta | token | done | error
  */
 export async function POST(req: Request) {
@@ -84,28 +87,9 @@ export async function POST(req: Request) {
     }
 
     try {
-    const tEmbed = Date.now();
-    const queryEmb = await embedText(text);
-    const embedMs = Date.now() - tEmbed;
     const tRetrieve = Date.now();
-    const [hybridHits, openWork] = await Promise.all([
-      hybridRetrieve({
-        userId,
-        queryEmbedding: queryEmb,
-        queryText: text,
-        limit: 8,
-      }),
-      listOpenTasks(userId),
-    ]);
-    const hits = mergeWorkingSet(hybridHits, openWork);
+    let openWork = await listOpenTasks(userId);
     const retrieveMs = Date.now() - tRetrieve;
-
-    await recordMemoryHits({
-      userId,
-      threadId,
-      messageId: userMessage.id,
-      hits,
-    });
 
     const { rows: history } = await query<Message>(
       `
@@ -121,7 +105,7 @@ export async function POST(req: Request) {
     const locale = detectReplyLocale(text);
 
     const chatMessages: ChatMessage[] = [
-      { role: "system", content: buildSystemPrompt(hits, locale, openWork) },
+      { role: "system", content: buildSystemPrompt(locale, openWork) },
       ...chronological
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -144,9 +128,55 @@ export async function POST(req: Request) {
             threadId,
             userMessageId: userMessage.id,
             locale,
-            memories: hits.map(publicHit),
+            memories: [],
             openWork: openWork.map(publicHit),
           });
+
+          const tTools = Date.now();
+          let searchHits: HybridHit[] = [];
+          let toolWrites: Awaited<ReturnType<typeof dedupeAndStore>> = [];
+          let closedByTool = false;
+          try {
+            for (let round = 0; round < 2; round++) {
+              const step = await completeWithTools(chatMessages);
+              if (!step.calls.length) break;
+              const exec = await executeMemoryTools(step.calls, {
+                userId,
+                threadId: threadId!,
+                sourceMessageId: userMessage.id,
+              });
+              searchHits = searchHits.concat(exec.searchHits);
+              toolWrites = toolWrites.concat(exec.writes);
+              if (exec.closed.length) closedByTool = true;
+              for (const ev of exec.events) {
+                send({ type: "tool", name: ev.name, output: ev.output });
+              }
+              chatMessages.push({
+                role: "assistant",
+                content: step.text || "Using memory tools.",
+              });
+              chatMessages.push({
+                role: "user",
+                content: `Memory tool results:\n${formatToolResultsForModel(exec.events)}\nAnswer the user now. Call more tools only if still needed.`,
+              });
+            }
+          } catch (toolErr) {
+            send({
+              type: "warn",
+              message:
+                toolErr instanceof Error
+                  ? toolErr.message
+                  : "memory tools failed",
+            });
+          }
+          const toolMs = Date.now() - tTools;
+          if (searchHits.length) {
+            send({ type: "memories", memories: searchHits.map(publicHit) });
+          }
+          if (closedByTool) {
+            openWork = [];
+            send({ type: "open_work", openWork: [] });
+          }
 
           let assistantText = "";
           for await (const delta of streamChat(chatMessages)) {
@@ -165,7 +195,7 @@ export async function POST(req: Request) {
           const assistantMessage = asstRows[0];
 
           // P6 → P7 → P8 (async path kept in-request for demo reliability)
-          let writes: Awaited<ReturnType<typeof dedupeAndStore>> = [];
+          let writes: Awaited<ReturnType<typeof dedupeAndStore>> = [...toolWrites];
           const tExtract = Date.now();
           try {
             const extracted = await extractMemories({
@@ -174,14 +204,26 @@ export async function POST(req: Request) {
               locale,
               openWork,
             });
+            if (extracted.closeOpenWork && !closedByTool) {
+              const closed = await expireOpenTasks(userId);
+              if (closed.length) {
+                openWork = [];
+                send({
+                  type: "tool",
+                  name: "close_open_work",
+                  output: `Expired ${closed.length} open-work row(s).`,
+                });
+              }
+            }
             if (extracted.memories.length) {
-              writes = await dedupeAndStore({
+              const more = await dedupeAndStore({
                 userId,
                 threadId: threadId!,
                 sourceMessageId: assistantMessage.id,
                 candidates: extracted.memories,
                 entities: extracted.entities,
               });
+              writes = writes.concat(more);
             } else if (extracted.entities.length) {
               await upsertAndLinkEntities({
                 userId,
@@ -200,7 +242,8 @@ export async function POST(req: Request) {
           }
           const extractMs = Date.now() - tExtract;
           const timing = {
-            embedMs,
+            embedMs: toolMs,
+            toolMs,
             retrieveMs,
             extractMs,
             totalMs: Date.now() - started,
@@ -210,7 +253,8 @@ export async function POST(req: Request) {
             instance: instanceId(),
             userId,
             threadId,
-            hits: hits.length,
+            hits: searchHits.length,
+            tools: toolWrites.length,
             add: writes.filter((w) => w.action === "ADD").length,
             update: writes.filter((w) => w.action === "UPDATE").length,
             skip: writes.filter((w) => w.action === "SKIP").length,
@@ -222,7 +266,7 @@ export async function POST(req: Request) {
             requestId,
             assistantMessageId: assistantMessage.id,
             memoryWrites: writes,
-            memoriesUsed: hits.map(publicHit),
+            memoriesUsed: searchHits.map(publicHit),
             openWork: openWork.map(publicHit),
             timing,
           });

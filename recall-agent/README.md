@@ -30,10 +30,11 @@ Open http://localhost:3000
 1. “I prefer concise answers. I work in TypeScript on AWS.”
 2. New message: “What do you know about my preferences?”
 3. Open work: “I am shipping Recall this week. Left: 3-minute video, GitHub About license, public demo URL.”
-4. “What is left?” — **Open work** stays pinned even if hybrid is weak.
-5. “The video is done.” — `task_state` UPDATE/supersedes the previous remaining-work sentence.
-6. `/memory` — search / delete; next chat turn reflects deletes.
-7. Mid-thread language switch: `Responde en espanol: que sabes de mi?`
+4. “What is left?” — **Open work** stays pinned.
+5. “Everything is done, close that job.” — live `task_state` gets `valid_to`.
+6. “What do you know about my preferences?” — model should call `search_memory`.
+7. `/memory` — search / delete; next chat turn reflects deletes.
+8. Mid-thread language switch: `Responde en espanol: que sabes de mi?`
 
 ## API
 

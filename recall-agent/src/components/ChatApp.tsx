@@ -44,6 +44,9 @@ export function ChatApp() {
   const [hits, setHits] = useState<Hit[]>([]);
   const [openWork, setOpenWork] = useState<Hit[]>([]);
   const [writes, setWrites] = useState<Write[]>([]);
+  const [tools, setTools] = useState<Array<{ name: string; output: string }>>(
+    [],
+  );
   const [error, setError] = useState<string | null>(null);
   const [locale, setLocale] = useState<{ tag: string; label: string } | null>(
     null,
@@ -105,6 +108,7 @@ export function ChatApp() {
     setMessages([]);
     setHits([]);
     setWrites([]);
+    setTools([]);
     setTiming(null);
     setLocale(null);
     setError(null);
@@ -136,6 +140,7 @@ export function ChatApp() {
     );
     setHits([]);
     setWrites([]);
+    setTools([]);
     try {
       localStorage.setItem(THREAD_KEY, id);
     } catch {
@@ -203,6 +208,7 @@ export function ChatApp() {
     setBusy(true);
     setError(null);
     setWrites([]);
+    setTools([]);
 
     const tempUserId = `local-user-${Date.now()}`;
     setMessages((m) => [...m, { id: tempUserId, role: "user", content: text }]);
@@ -244,6 +250,8 @@ export function ChatApp() {
             memories?: Hit[];
             openWork?: Hit[];
             memoryWrites?: Write[];
+            name?: string;
+            output?: string;
             message?: string;
             locale?: { tag: string; label: string };
             timing?: {
@@ -271,6 +279,15 @@ export function ChatApp() {
             if (evt.memories) setHits(evt.memories);
             if (evt.openWork) setOpenWork(evt.openWork);
             if (evt.locale) setLocale(evt.locale);
+          } else if (evt.type === "tool" && evt.name) {
+            setTools((prev) => [
+              ...prev,
+              { name: evt.name || "tool", output: evt.output || "" },
+            ]);
+          } else if (evt.type === "memories" && evt.memories) {
+            setHits(evt.memories);
+          } else if (evt.type === "open_work" && evt.openWork) {
+            setOpenWork(evt.openWork);
           } else if (evt.type === "token" && evt.text) {
             setMessages((prev) =>
               prev.map((m) =>
@@ -282,6 +299,7 @@ export function ChatApp() {
           } else if (evt.type === "done") {
             if (evt.memoryWrites) setWrites(evt.memoryWrites);
             if (evt.memories) setHits(evt.memories);
+            if (evt.openWork) setOpenWork(evt.openWork);
             if (evt.timing) setTiming(evt.timing);
             refreshFunnel();
             refreshOpenWork();
@@ -355,15 +373,17 @@ export function ChatApp() {
                   Persistent memory, not a bolt-on cache
                 </p>
                 <p>
-                  One job loop: say what you are shipping. Recall stores it as
-                  <span className="text-slate-300"> task_state </span>
-                  and pins it on every later turn. Progress supersedes the old
-                  row; delete it on Memory to drop the job.
+                  Open work is pinned. Long-term facts are retrieved only when
+                  the model calls{" "}
+                  <span className="text-slate-300">search_memory</span>. Say
+                  the job is finished with nothing left and live{" "}
+                  <span className="text-slate-300">task_state</span> expires.
                 </p>
                 <p className="mt-3 text-xs text-slate-500">
-                  Try: &quot;I am shipping Recall this week. Left: 3-minute
-                  video, GitHub About license, public demo URL.&quot; Then
-                  &quot;What is left?&quot; Then &quot;The video is done.&quot;
+                  Try: &quot;I am shipping Recall this week. Left: video, GitHub
+                  About, demo URL.&quot; Then &quot;What is left?&quot; Then
+                  &quot;Everything is done — close that job.&quot; Then
+                  &quot;What do you know about my preferences?&quot;
                 </p>
               </div>
             )}
@@ -431,7 +451,7 @@ export function ChatApp() {
           )}
           {timing && (
             <p className="font-mono text-[10px] text-slate-500">
-              embed {timing.embedMs}ms · retrieve {timing.retrieveMs}ms · write{" "}
+              tools {timing.embedMs}ms · pin {timing.retrieveMs}ms · write{" "}
               {timing.extractMs}ms · total {timing.totalMs}ms
             </p>
           )}
@@ -457,6 +477,32 @@ export function ChatApp() {
                     className="rounded-lg border border-amber-900/50 bg-amber-950/30 p-2.5"
                   >
                     <p className="text-xs text-amber-50">{t.content}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section>
+            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-sky-300">
+              Memory tools
+            </h2>
+            {tools.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                search_memory / insert_memory / close_open_work appear here.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {tools.map((t, i) => (
+                  <li
+                    key={`${t.name}-${i}`}
+                    className="rounded-lg border border-slate-800 bg-slate-900/70 p-2.5"
+                  >
+                    <div className="mb-1 font-mono text-[10px] text-sky-300">
+                      {t.name}
+                    </div>
+                    <p className="whitespace-pre-wrap text-[11px] text-slate-300">
+                      {t.output}
+                    </p>
                   </li>
                 ))}
               </ul>

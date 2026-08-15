@@ -35,6 +35,25 @@ export async function listOpenTasks(userId: string): Promise<HybridHit[]> {
   }));
 }
 
+/** Close the vertical loop: expire every live task_state for this tenant. */
+export async function expireOpenTasks(userId: string): Promise<
+  Array<{ id: string; content: string }>
+> {
+  const { rows } = await query<{ id: string; content: string }>(
+    `
+    UPDATE memories
+    SET valid_to = now(), updated_at = now()
+    WHERE user_id = $1::uuid
+      AND kind = 'task_state'::memory_kind
+      AND deleted_at IS NULL
+      AND valid_to IS NULL
+    RETURNING id, content
+    `,
+    [userId],
+  );
+  return rows;
+}
+
 export function mergeWorkingSet(
   hits: HybridHit[],
   openWork: HybridHit[],

@@ -56,7 +56,7 @@ Conversation control is the same tenant rule: start as Guest, register to claim 
 
 Demo path: Claude Code + Managed Cloud MCP, `EXPLAIN` the hybrid ANN statement, then `SELECT * FROM v_memory_funnel`.
 
-Open-work loop: user names a job → extract `task_state` → every later turn **pins** live `task_state` rows (hybrid can miss “what’s left?”) → progress UPDATE/supersedes → delete on `/memory` drops the job.
+Open-work loop: user names a job → extract `task_state` → every later turn **pins** live `task_state`. Archival recall is a `search_memory` tool (hybrid SQL), not auto-injected. `close_open_work` or extract `close_open_work=true` expires live `task_state`.
 
 ### Hackathon requirements
 
