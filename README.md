@@ -135,7 +135,7 @@ Demo (on the live URL or locally):
 1. Register a username + password, or Continue with Google.
 2. `I prefer concise answers. I work in TypeScript on AWS.`
 3. `What do you know about my preferences?` — the model should call `search_memory` (right-hand Memory tools).
-4. Open work: `I am shipping Recall this week. Left: 3-minute video, GitHub About license.` Then `What is left?`
+4. Open work: `I am shipping Recall this week. Left: the 3-minute video.` Then `What is left?`
 5. `Everything is done — close that job.` — live `task_state` gets `valid_to`.
 6. `/memory` — search, lineage, entities, or delete; the next turn reflects deletes.
 7. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.
@@ -160,3 +160,7 @@ Demo (on the live URL or locally):
 | `GET /api/ops/funnel` | This tenant's `v_memory_funnel` (last 7 days) |
 
 More app notes: [`recall-agent/README.md`](./recall-agent/README.md).
+
+## License
+
+Apache License 2.0. See [`LICENSE`](./LICENSE). The GitHub repository About field is set to Apache-2.0.

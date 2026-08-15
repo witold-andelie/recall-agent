@@ -35,7 +35,7 @@ Public deploy is live at [https://recall-agent.onrender.com/](https://recall-age
 
 1. “I prefer concise answers. I work in TypeScript on AWS.”
 2. New message: “What do you know about my preferences?”
-3. Open work: “I am shipping Recall this week. Left: 3-minute video, GitHub About license.”
+3. Open work: “I am shipping Recall this week. Left: the 3-minute video.”
 4. “What is left?” — **Open work** stays pinned.
 5. “Everything is done, close that job.” — live `task_state` gets `valid_to`.
 6. “What do you know about my preferences?” — model should call `search_memory`.
