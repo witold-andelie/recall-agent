@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "./AuthProvider";
 
 type Mode = "signin" | "register" | "password";
@@ -14,6 +14,7 @@ export function AuthControls() {
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dismissFromBackdrop = useRef(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -81,7 +82,7 @@ export function AuthControls() {
   return (
     <div className="flex items-center gap-2 text-xs">
       <span
-        className="hidden max-w-[160px] truncate text-slate-400 sm:inline"
+        className="hidden max-w-[160px] truncate select-text text-slate-400 sm:inline"
         title={user?.username || user?.userId || ""}
       >
         {loading ? "…" : label}
@@ -134,10 +135,25 @@ export function AuthControls() {
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={close}
+          onPointerDown={(e) => {
+            dismissFromBackdrop.current = e.target === e.currentTarget;
+          }}
+          onClick={(e) => {
+            if (window.getSelection()?.toString()) {
+              dismissFromBackdrop.current = false;
+              return;
+            }
+            if (dismissFromBackdrop.current && e.target === e.currentTarget) {
+              close();
+            }
+            dismissFromBackdrop.current = false;
+          }}
         >
           <form
-            className="w-full max-w-sm rounded-xl border border-slate-700 bg-slate-950 p-4 shadow-xl"
+            className="w-full max-w-sm select-text rounded-xl border border-slate-700 bg-slate-950 p-4 shadow-xl"
+            onPointerDown={() => {
+              dismissFromBackdrop.current = false;
+            }}
             onClick={(e) => e.stopPropagation()}
             onSubmit={(e) => void onSubmit(e)}
           >
