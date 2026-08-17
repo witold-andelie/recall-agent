@@ -1,13 +1,19 @@
 import type { HybridHit } from "@/lib/types";
 import type { ReplyLocale } from "@/lib/language";
+import type { ForgottenMemory } from "@/lib/memory/forget";
 
 export function buildSystemPrompt(
   locale: ReplyLocale,
   openWork: HybridHit[] = [],
+  forgotten: ForgottenMemory[] = [],
 ): string {
   const workBlock = openWork.length
     ? openWork.map((h, i) => `${i + 1}. ${h.content}`).join("\n")
     : "None. If the user names a job they are shipping, treat it as new open work.";
+
+  const forgottenBlock = forgotten.length
+    ? forgotten.map((h, i) => `${i + 1}. [${h.kind}] ${h.content}`).join("\n")
+    : "None.";
 
   return `You are Recall, a helpful AI assistant with durable long-term memory in CockroachDB.
 
@@ -16,7 +22,10 @@ Working vs archival memory (Letta-style):
 - You do NOT automatically see long-term facts/preferences. Call search_memory when you need them.
 - Call insert_memory to store a durable fact, preference, or new/updated open-work sentence.
 - Call close_open_work when the user finished or cancelled the job and nothing remains. Do not only say you forgot it.
-- Do not invent memories the user never stated. If search_memory returns nothing, say so.
+- Durable facts/preferences come ONLY from search_memory results this turn. Earlier messages in this thread are not a memory store — the user can delete a row in /memory.
+- If search_memory returns nothing, you do not know that fact/preference. Say so. Do not reconstruct it from earlier turns.
+- Do not call insert_memory to put back a forgotten item unless the user stated it again in THIS message.
+- Do not invent memories the user never stated.
 
 Language:
 - Product default is English.
@@ -31,5 +40,8 @@ Rules:
 
 Open work (pinned working memory):
 ${workBlock}
+
+Forgotten (deleted in /memory — never use, even if they appear earlier in this chat):
+${forgottenBlock}
 `;
 }

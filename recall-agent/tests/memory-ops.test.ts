@@ -4,6 +4,15 @@ import { normalizeEntityName } from "../src/lib/memory/entities.ts";
 import { mergeWorkingSet } from "../src/lib/memory/working.ts";
 import { formatMemoriesForPrompt } from "../src/lib/memory/hybrid.ts";
 import { formatToolResultsForModel } from "../src/lib/memory/agent-tools.ts";
+import { buildSystemPrompt } from "../src/lib/prompt.ts";
+import {
+  buildAuthoritativeMemoryNote,
+  isForgottenRestatement,
+  isRecallOnlyTurn,
+  looksLikeRecallQuestion,
+  normalizeMemoryText,
+} from "../src/lib/memory/forget.ts";
+import { extractMemories } from "../src/lib/memory/extract.ts";
 import {
   DEFAULT_L2_SKIP,
   DEFAULT_L2_UPDATE,
@@ -89,6 +98,72 @@ test("thresholds calibrate when each action has enough rows", () => {
   assert.ok(t!.l2Skip < t!.l2Update);
   assert.notEqual(t!.l2Skip, DEFAULT_L2_SKIP);
   assert.ok(t!.l2Update <= DEFAULT_L2_UPDATE + 0.5);
+});
+
+test("recall question detection covers the demo line", () => {
+  assert.equal(
+    looksLikeRecallQuestion("What do you know about my preferences?"),
+    true,
+  );
+  assert.equal(isRecallOnlyTurn("What do you know about my preferences?"), true);
+  assert.equal(
+    isRecallOnlyTurn("I prefer long essays. What do you know about my preferences?"),
+    false,
+  );
+  assert.equal(looksLikeRecallQuestion("I prefer concise answers."), false);
+});
+
+test("forgotten restatement matches extracted vs user wording", () => {
+  assert.equal(
+    isForgottenRestatement(
+      "The user prefers concise answers.",
+      ["I prefer concise answers."],
+    ),
+    true,
+  );
+  assert.equal(
+    isForgottenRestatement(
+      "Works in TypeScript on AWS",
+      ["I work in TypeScript on AWS."],
+    ),
+    true,
+  );
+  assert.equal(
+    isForgottenRestatement(
+      "Shipping the 3-minute video this week",
+      ["I prefer concise answers."],
+    ),
+    false,
+  );
+  assert.ok(normalizeMemoryText("I prefer concise answers.").includes("concise"));
+});
+
+test("authoritative note and system prompt name forgotten rows", () => {
+  const note = buildAuthoritativeMemoryNote({
+    hits: [],
+    forgotten: [{ kind: "preference", content: "I prefer concise answers." }],
+  });
+  assert.match(note, /no live rows/i);
+  assert.match(note, /I prefer concise answers/);
+  assert.match(note, /not a memory store/i);
+
+  const prompt = buildSystemPrompt(
+    { tag: "en", label: "English" },
+    [],
+    [{ id: "m1", kind: "preference", content: "I prefer concise answers." }],
+  );
+  assert.match(prompt, /Forgotten/);
+  assert.match(prompt, /I prefer concise answers/);
+  assert.match(prompt, /do not reconstruct/i);
+});
+
+test("recall-only extract does not re-ADD deleted preferences", async () => {
+  const out = await extractMemories({
+    userMessage: "What do you know about my preferences?",
+    assistantMessage: "You prefer concise answers and work in TypeScript on AWS.",
+  });
+  assert.deepEqual(out.memories, []);
+  assert.equal(out.closeOpenWork, false);
 });
 
 test("detectReplyLocale follows Spanish cues", () => {

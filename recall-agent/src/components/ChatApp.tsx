@@ -207,6 +207,7 @@ export function ChatApp() {
     setInput("");
     setBusy(true);
     setError(null);
+    setHits([]);
     setWrites([]);
     setTools([]);
 
@@ -254,6 +255,7 @@ export function ChatApp() {
             output?: string;
             message?: string;
             locale?: { tag: string; label: string };
+            memoriesUsed?: Hit[];
             timing?: {
               embedMs: number;
               retrieveMs: number;
@@ -298,7 +300,8 @@ export function ChatApp() {
             );
           } else if (evt.type === "done") {
             if (evt.memoryWrites) setWrites(evt.memoryWrites);
-            if (evt.memories) setHits(evt.memories);
+            if (Array.isArray(evt.memories)) setHits(evt.memories);
+            else if (Array.isArray(evt.memoriesUsed)) setHits(evt.memoriesUsed);
             if (evt.openWork) setOpenWork(evt.openWork);
             if (evt.timing) setTiming(evt.timing);
             refreshFunnel();
@@ -513,7 +516,7 @@ export function ChatApp() {
               Memory hits (this turn)
             </h2>
             {hits.length === 0 ? (
-              <p className="text-xs text-slate-500">No memories retrieved yet.</p>
+              <p className="text-xs text-slate-500">No live memories for this turn.</p>
             ) : (
               <ul className="space-y-2">
                 {hits.map((h) => (

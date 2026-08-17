@@ -2,6 +2,10 @@ import { z } from "zod";
 import { completeJson } from "@/lib/ai/chat";
 import type { EntityMention, MemoryCandidate } from "@/lib/types";
 import type { ReplyLocale } from "@/lib/language";
+import {
+  isForgottenRestatement,
+  isRecallOnlyTurn,
+} from "@/lib/memory/forget";
 
 const Candidate = z.object({
   kind: z.enum(["preference", "fact", "task_state"]).catch("fact"),
@@ -33,7 +37,12 @@ export async function extractMemories(opts: {
   assistantMessage: string;
   locale?: ReplyLocale;
   openWork?: Array<{ content: string }>;
+  forgottenContents?: string[];
 }): Promise<ExtractResult> {
+  if (isRecallOnlyTurn(opts.userMessage)) {
+    return { memories: [], entities: [], closeOpenWork: false };
+  }
+
   const lang = opts.locale?.label ?? "the user's language";
   const open =
     opts.openWork?.length
@@ -55,7 +64,8 @@ Rules:
 - preference / fact = lasting identity, not the current job.
 - entities: named people, organizations/teams, places, or a named project (other). Use the name as the user wrote it. Skip pronouns, generic nouns ("the team"), and secrets.
 - Max 3 memories and 4 entities. Empty arrays are fine.
-- content must be a short standalone sentence.`;
+- content must be a short standalone sentence.
+- If the user is only asking what you remember or their preferences, return memories: []. Do not copy facts from the assistant recap or earlier chat — those rows may have been deleted.`;
 
   const raw = await completeJson([
     { role: "system", content: system },
@@ -71,9 +81,11 @@ Rules:
       return { memories: [], entities: [], closeOpenWork: false };
     }
     const closeOpenWork = Boolean(parsed.data.close_open_work);
+    const forgotten = opts.forgottenContents ?? [];
     const memories = (parsed.data.memories || [])
       .slice(0, 3)
       .filter((m) => !(closeOpenWork && m.kind === "task_state"))
+      .filter((m) => !isForgottenRestatement(m.content, forgotten))
       .map((m) => ({
         kind: m.kind,
         content: m.content,

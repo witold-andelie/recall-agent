@@ -2,6 +2,7 @@ import { embedText } from "@/lib/ai/embed";
 import { hybridRetrieve, recordMemoryHits } from "@/lib/memory/hybrid";
 import { dedupeAndStore, type DedupeResult } from "@/lib/memory/dedupe";
 import { expireOpenTasks } from "@/lib/memory/working";
+import { isForgottenRestatement } from "@/lib/memory/forget";
 import type { HybridHit, MemoryKind } from "@/lib/types";
 
 export const MEMORY_TOOL_NAMES = [
@@ -73,6 +74,8 @@ export type ToolExecContext = {
   userId: string;
   threadId: string;
   sourceMessageId: string;
+  userMessage?: string;
+  forgottenContents?: string[];
 };
 
 export type ToolExecBundle = {
@@ -130,7 +133,7 @@ export async function executeMemoryTools(
                     `[${h.kind}] ${h.content} (score=${h.hybrid_score.toFixed(3)})`,
                 )
                 .join("\n")
-            : "No matching memories.",
+            : "No matching memories. This is authoritative: you have no live row for that query. Do not reconstruct it from earlier messages in this thread — the user may have deleted it.",
         });
       } else if (name === "insert_memory") {
         const content = String(call.input.content || "").trim();
@@ -140,6 +143,23 @@ export async function executeMemoryTools(
             name,
             input: call.input,
             output: "content required",
+          });
+          continue;
+        }
+        const forgotten = ctx.forgottenContents ?? [];
+        const userSaidAgain = ctx.userMessage
+          ? isForgottenRestatement(ctx.userMessage, [content])
+          : false;
+        if (
+          forgotten.length &&
+          isForgottenRestatement(content, forgotten) &&
+          !userSaidAgain
+        ) {
+          bundle.events.push({
+            name,
+            input: call.input,
+            output:
+              "Rejected: this memory was deleted in /memory. Do not restore it unless the user stated it again in this message.",
           });
           continue;
         }

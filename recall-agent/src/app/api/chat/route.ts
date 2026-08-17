@@ -2,14 +2,21 @@ import { query } from "@/lib/db/pool";
 import { requireUserId } from "@/lib/session/user";
 import { streamChat, type ChatMessage } from "@/lib/ai/chat";
 import { completeWithTools } from "@/lib/ai/complete-tools";
+import { embedText } from "@/lib/ai/embed";
 import { listOpenTasks, expireOpenTasks } from "@/lib/memory/working";
 import { extractMemories } from "@/lib/memory/extract";
 import { dedupeAndStore } from "@/lib/memory/dedupe";
 import { upsertAndLinkEntities } from "@/lib/memory/entities";
+import { hybridRetrieve, recordMemoryHits } from "@/lib/memory/hybrid";
 import {
   executeMemoryTools,
   formatToolResultsForModel,
 } from "@/lib/memory/agent-tools";
+import {
+  buildAuthoritativeMemoryNote,
+  listForgottenMemories,
+  looksLikeRecallQuestion,
+} from "@/lib/memory/forget";
 import { buildSystemPrompt } from "@/lib/prompt";
 import { detectReplyLocale } from "@/lib/language";
 import { logEvent, newRequestId } from "@/lib/log";
@@ -89,6 +96,7 @@ export async function POST(req: Request) {
     try {
     const tRetrieve = Date.now();
     let openWork = await listOpenTasks(userId);
+    const forgotten = await listForgottenMemories(userId);
     const retrieveMs = Date.now() - tRetrieve;
 
     const { rows: history } = await query<Message>(
@@ -105,7 +113,7 @@ export async function POST(req: Request) {
     const locale = detectReplyLocale(text);
 
     const chatMessages: ChatMessage[] = [
-      { role: "system", content: buildSystemPrompt(locale, openWork) },
+      { role: "system", content: buildSystemPrompt(locale, openWork, forgotten) },
       ...chronological
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({
@@ -136,14 +144,21 @@ export async function POST(req: Request) {
           let searchHits: HybridHit[] = [];
           let toolWrites: Awaited<ReturnType<typeof dedupeAndStore>> = [];
           let closedByTool = false;
+          let searched = false;
+          const forgottenContents = forgotten.map((f) => f.content);
           try {
             for (let round = 0; round < 2; round++) {
               const step = await completeWithTools(chatMessages);
               if (!step.calls.length) break;
+              if (step.calls.some((c) => c.name === "search_memory")) {
+                searched = true;
+              }
               const exec = await executeMemoryTools(step.calls, {
                 userId,
                 threadId: threadId!,
                 sourceMessageId: userMessage.id,
+                userMessage: text,
+                forgottenContents,
               });
               searchHits = searchHits.concat(exec.searchHits);
               toolWrites = toolWrites.concat(exec.writes);
@@ -160,6 +175,34 @@ export async function POST(req: Request) {
                 content: `Memory tool results:\n${formatToolResultsForModel(exec.events)}\nAnswer the user now. Call more tools only if still needed.`,
               });
             }
+            if (looksLikeRecallQuestion(text) && !searched) {
+              const emb = await embedText(text);
+              const hits = await hybridRetrieve({
+                userId,
+                queryEmbedding: emb,
+                queryText: text,
+                limit: 8,
+              });
+              await recordMemoryHits({
+                userId,
+                threadId: threadId!,
+                messageId: userMessage.id,
+                hits,
+              });
+              searchHits = hits;
+              send({
+                type: "tool",
+                name: "search_memory",
+                output: hits.length
+                  ? hits
+                      .map(
+                        (h) =>
+                          `[${h.kind}] ${h.content} (score=${h.hybrid_score.toFixed(3)})`,
+                      )
+                      .join("\n")
+                  : "No matching memories.",
+              });
+            }
           } catch (toolErr) {
             send({
               type: "warn",
@@ -170,8 +213,16 @@ export async function POST(req: Request) {
             });
           }
           const toolMs = Date.now() - tTools;
-          if (searchHits.length) {
-            send({ type: "memories", memories: searchHits.map(publicHit) });
+          send({ type: "memories", memories: searchHits.map(publicHit) });
+          const memoryNote = buildAuthoritativeMemoryNote({
+            hits: searchHits,
+            forgotten,
+          });
+          const last = chatMessages[chatMessages.length - 1];
+          if (last?.role === "user") {
+            last.content = `${last.content}\n\n${memoryNote}`;
+          } else {
+            chatMessages.push({ role: "user", content: memoryNote });
           }
           if (closedByTool) {
             openWork = [];
@@ -203,6 +254,7 @@ export async function POST(req: Request) {
               assistantMessage: assistantText,
               locale,
               openWork,
+              forgottenContents,
             });
             if (extracted.closeOpenWork && !closedByTool) {
               const closed = await expireOpenTasks(userId);
@@ -266,6 +318,7 @@ export async function POST(req: Request) {
             requestId,
             assistantMessageId: assistantMessage.id,
             memoryWrites: writes,
+            memories: searchHits.map(publicHit),
             memoriesUsed: searchHits.map(publicHit),
             openWork: openWork.map(publicHit),
             timing,
