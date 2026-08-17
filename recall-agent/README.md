@@ -39,7 +39,7 @@ Public deploy is live at [https://recall-agent.onrender.com/](https://recall-age
 4. “What is left?” — **Open work** stays pinned.
 5. “Everything is done, close that job.” — live `task_state` gets `valid_to`.
 6. “What do you know about my preferences?” — model should call `search_memory`.
-7. `/memory` — search / delete; next chat turn reflects deletes.
+7. `/memory` — search `TypeScript` or `concise`, delete the preference. Same thread, ask again: empty **Memory hits**, no recap from earlier messages (`src/lib/memory/forget.ts`).
 8. Mid-thread language switch: `Responde en espanol: que sabes de mi?`
 
 ## API
@@ -54,7 +54,7 @@ Public deploy is live at [https://recall-agent.onrender.com/](https://recall-age
 | `POST /api/auth/logout` | Expire session |
 | `POST /api/auth/password` | Change password (password accounts) |
 | `GET/POST /api/threads` | Threads |
-| `POST /api/chat` | NDJSON stream: retrieve → reply → extract → store |
+| `POST /api/chat` | NDJSON: pin open work → forgotten list → tools → stream → extract |
 | `GET/POST/DELETE /api/memories` | Memory browser + hybrid `?q=` + lineage. `?history=1` includes expired versions |
 | `GET /api/entities` | Tenant entity clusters (`v_entity_clusters`) |
 | `GET /api/health` | Process liveness (no SQL) |
@@ -67,7 +67,7 @@ Repo-root artifacts (parent of this app) are the judge checklist.
 
 | Requirement | Implementation |
 |-------------|----------------|
-| CRDB persistent memory | `memories` + write path in `src/lib/memory/dedupe.ts` |
+| CRDB persistent memory | `memories` + write path in `src/lib/memory/dedupe.ts`. Delete is `deleted_at`; chat forget path is `src/lib/memory/forget.ts`. |
 | ① Vector index | `CREATE VECTOR INDEX (user_id, embedding)` in `sql/schema_v3.sql`; `<->` in `src/lib/memory/hybrid.ts` |
 | Hybrid FTS | `to_tsvector('simple')` + entity CTE in `hybrid.ts` |
 | Managed MCP | Official `https://cockroachlabs.cloud/mcp` — see `../docs/managed-mcp.md` |
@@ -78,7 +78,7 @@ Repo-root artifacts (parent of this app) are the judge checklist.
 
 - `GET /api/health` — process liveness (`ok`, `instance`, in-flight chat). No SQL.
 - `GET /api/ready` — Cockroach ping plus schema, pg pool, and in-flight chat counts
-- `npm test` — password, locale, entity, L2 calibration, tool-result formatting
+- `npm test` — password, locale, entity, L2 calibration, tool-result formatting, recall/forget helpers
 - `npm run db:check` — tables, views, ANN `vector search` plan
 - `npm run db:grants` — `CREATE USER recall_app` + `sql/app_grants.sql` (does not rotate `DATABASE_URL`)
 - `GET /api/ops/funnel` — tenant funnel from `v_memory_funnel`

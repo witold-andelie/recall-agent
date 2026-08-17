@@ -39,7 +39,7 @@ Scoping: every view has `user_id` except you must still filter. Never present on
 `messages` = user turns that day. `extractions` = candidate rows the model proposed. `add_n` / `update_n` / `skip_n` come from `memory_extraction_log`. `add_rate` = ADD / extractions. A high skip rate can mean healthy dedupe, not a broken extractor.
 
 **Reuse is memory-grain.**  
-`never_used` means `hit_count = 0` (written, never retrieved). Soft-deleted rows (`deleted_at IS NOT NULL`) are excluded.
+`never_used` means `hit_count = 0` (written, never retrieved). Soft-deleted rows (`deleted_at IS NOT NULL`) are excluded from this view and from hybrid retrieve. Chat forget (`recall-agent/src/lib/memory/forget.ts`) also lists those rows so the model cannot rebuild them from thread history.
 
 **Breakdown is hit-grain, not turn-grain.**  
 `retrieval_hits` counts one row per surfaced memory. A turn that returns k memories contributes k. Do not call `sum(retrieval_hits)` “number of chats.” For “how many turns wrote memory,” use `v_memory_funnel.messages` / `.extractions`.

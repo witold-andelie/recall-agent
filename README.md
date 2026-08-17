@@ -36,18 +36,21 @@ One CockroachDB cluster is the record system: ops rows, `VECTOR(1024)`, PostgreS
 ```
 User message
   → pin live task_state (open work)
+  → load forgotten rows (soft-deleted) so chat history cannot restore them
   → model may call search_memory / insert_memory / close_open_work
       search_memory → one hybrid SQL (vector L2 + simple FTS + entity hop)
-      insert_memory → SQL ADD | UPDATE | SKIP
+      insert_memory → SQL ADD | UPDATE | SKIP (rejected if it restates a deleted row)
       close_open_work → SET valid_to on live task_state
-  → stream reply
+  → stream reply from live SQL rows + this turn, not earlier messages
   → LLM may extract more candidates / entities / close_open_work
   → SQL stores row + vector + tsvector (per-candidate transaction)
 ```
 
 Open work is always in the prompt. Archival facts are retrieved only via `search_memory`. The model never decides merge/skip; SQL does.
 
-Start as Guest, then claim the same `user_id` with **username + password** (no email check) or **Google OAuth**. Sign in on another browser, list threads, browse / hybrid-search / CRUD memories. A delete in `/memory` changes the next answer.
+A delete in `/memory` sets `deleted_at`. Hybrid search excludes that row. The same thread still has the original user sentence in `messages`, but chat treats **live Cockroach rows** as the memory store: forgotten contents are listed in the prompt, recall questions get an authoritative empty search, and extract will not ADD the deleted fact back.
+
+Start as Guest, then claim the same `user_id` with **username + password** (no email check) or **Google OAuth**. Sign in on another browser, list threads, browse / hybrid-search / CRUD memories.
 
 ### SQL surface (what judges can EXPLAIN)
 
@@ -77,7 +80,7 @@ Open-work loop: user names a job → extract `task_state` → every later turn *
 |---|---|
 | Amazon Bedrock | Live when `AI_PROVIDER=bedrock`. Chat: `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Embed: `amazon.titan-embed-text-v2:0` (1024-d). Code: [`recall-agent/src/lib/ai/`](./recall-agent/src/lib/ai/). |
 
-Judge walkthrough: open [https://recall-agent.onrender.com/](https://recall-agent.onrender.com/) → chat two turns → Memory hits / ADD → `/memory` delete → next turn changes. Then Claude Code + Cloud MCP: `EXPLAIN` the hybrid ANN and `SELECT * FROM v_memory_funnel`. The first load after idle can take ~30s (Render free sleep).
+Judge walkthrough: open [https://recall-agent.onrender.com/](https://recall-agent.onrender.com/) → chat two turns → Memory hits / ADD → `/memory` delete → **same thread** `What do you know about my preferences?` → empty Memory hits and no recap of the deleted row. Then Claude Code + Cloud MCP: `EXPLAIN` the hybrid ANN and `SELECT * FROM v_memory_funnel`. The first load after idle can take ~30s (Render free sleep).
 
 ### Known limitations
 
@@ -137,8 +140,9 @@ Demo (on the live URL or locally):
 3. `What do you know about my preferences?` — the model should call `search_memory` (right-hand Memory tools).
 4. Open work: `I am shipping Recall this week. Left: the 3-minute video.` Then `What is left?`
 5. `Everything is done — close that job.` — live `task_state` gets `valid_to`.
-6. `/memory` — search, lineage, entities, or delete; the next turn reflects deletes.
-7. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.
+6. `/memory` — search `TypeScript` or `concise`, then delete the preference row.
+7. Same thread: `What do you know about my preferences?` — right-hand **Memory hits** stay empty (`No live memories for this turn`). The reply must not reconstruct the deleted preference from earlier chat.
+8. Switch mid-thread: `Responde en espanol: que sabes de mi?` — reply language follows this turn.
 
 ### API
 
@@ -152,7 +156,7 @@ Demo (on the live URL or locally):
 | `POST /api/auth/logout` | Expire session; next request is a new Guest |
 | `POST /api/auth/password` | Change password (password accounts) |
 | `GET` / `POST /api/threads` | Threads |
-| `POST /api/chat` | NDJSON: pin open work → memory tools → stream → extract |
+| `POST /api/chat` | NDJSON: pin open work → forgotten list → memory tools → stream → extract |
 | `GET` / `POST` / `DELETE /api/memories` | Browser + hybrid `?q=` + lineage. `?history=1` includes expired versions |
 | `GET /api/entities` | Tenant entity clusters |
 | `GET /api/health` | Process liveness (Render uses this; no SQL) |
